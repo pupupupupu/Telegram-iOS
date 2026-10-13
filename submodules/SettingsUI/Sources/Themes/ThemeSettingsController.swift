@@ -595,6 +595,8 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
                 sheet?.dismissAnimated()
                 pushControllerImpl?(PearlFlowEditorController(context: context, preset: preset, preview: { theme in
                     guard let encoded = encodePresentationTheme(theme), let data = encoded.data(using: .utf8) else {
+                        let message = presentationData.strings.baseLanguageCode.hasPrefix("ru") ? "Не удалось сохранить тему." : "Could not save the theme."
+                        presentControllerImpl?(textAlertController(context: context, title: nil, text: message, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
                         return
                     }
                     let resource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
@@ -1649,6 +1651,7 @@ private final class PearlFlowEditorController: ViewController, UIColorPickerView
     private let russian: Bool
     private var colors: [UInt32]
     private let initialColors: [UInt32]
+    private let savedTransparency: Float
     private var selectedColorIndex = 0
     private let scrollView = UIScrollView()
     private let stack = UIStackView()
@@ -1662,13 +1665,18 @@ private final class PearlFlowEditorController: ViewController, UIColorPickerView
         self.preview = preview
         let data = context.sharedContext.currentPresentationData.with { $0 }
         self.russian = data.strings.baseLanguageCode.hasPrefix("ru")
-        let theme = makePearlFlowTheme(preset)
-        if case let .gradient(gradient) = theme.chat.defaultWallpaper {
-            self.colors = gradient.colors
+        let defaultTheme = makePearlFlowTheme(preset)
+        let theme = data.theme.name.string == preset.rawValue ? data.theme : defaultTheme
+        self.savedTransparency = Float(max(0.0, min(35.0, (1.0 - theme.rootController.navigationBar.blurredBackgroundColor.alpha) * 100.0)))
+        if case let .gradient(gradient) = defaultTheme.chat.defaultWallpaper {
             self.initialColors = gradient.colors
         } else {
-            self.colors = [0x252832, 0x606D80, 0x343C4B, 0x8793A3]
             self.initialColors = [0x252832, 0x606D80, 0x343C4B, 0x8793A3]
+        }
+        if case let .gradient(gradient) = theme.chat.defaultWallpaper, gradient.colors.count == 4 {
+            self.colors = gradient.colors
+        } else {
+            self.colors = self.initialColors
         }
         super.init(navigationBarPresentationData: NavigationBarPresentationData(presentationTheme: data.theme, presentationStrings: data.strings, style: .glass))
         self._hasGlassStyle = true
@@ -1729,7 +1737,7 @@ private final class PearlFlowEditorController: ViewController, UIColorPickerView
         self.stack.addArrangedSubview(self.opacityLabel)
         self.opacitySlider.minimumValue = 0.0
         self.opacitySlider.maximumValue = 35.0
-        self.opacitySlider.value = 12.0
+        self.opacitySlider.value = self.savedTransparency
         self.opacitySlider.tintColor = UIColor(rgb: 0x94BFE5)
         self.opacitySlider.accessibilityLabel = self.russian ? "Прозрачность панелей" : "Panel transparency"
         self.opacitySlider.addTarget(self, action: #selector(self.updateDraft), for: .valueChanged)
@@ -1810,8 +1818,9 @@ private final class PearlFlowEditorController: ViewController, UIColorPickerView
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
         let top = self.navigationLayout(layout: layout).navigationFrame.maxY
-        let width = min(680.0, layout.size.width)
-        self.scrollView.frame = CGRect(x: (layout.size.width - width) / 2.0, y: top, width: width, height: max(0.0, layout.size.height - top))
+        let availableWidth = max(0.0, layout.size.width - layout.safeInsets.left - layout.safeInsets.right)
+        let width = min(680.0, availableWidth)
+        self.scrollView.frame = CGRect(x: layout.safeInsets.left + (availableWidth - width) / 2.0, y: top, width: width, height: max(0.0, layout.size.height - top))
         self.scrollView.contentInset.bottom = layout.intrinsicInsets.bottom
     }
 }
@@ -1839,7 +1848,9 @@ private final class PearlFlowSwatchView: UIView {
         CATransaction.setDisableActions(true)
         self.gradient.colors = colors.map { UIColor(rgb: $0).cgColor }
         CATransaction.commit()
-        self.material.alpha = UIAccessibility.isReduceTransparencyEnabled ? 1.0 : opacity
+        let reduceTransparency = UIAccessibility.isReduceTransparencyEnabled
+        self.material.effect = reduceTransparency ? nil : UIBlurEffect(style: .systemThinMaterial)
+        self.material.contentView.backgroundColor = UIColor.systemBackground.withAlphaComponent(reduceTransparency ? 1.0 : opacity)
     }
 
     override func layoutSubviews() {
