@@ -27,6 +27,7 @@ import DeviceModel
 private final class ThemeSettingsControllerArguments {
     let context: AccountContext
     let selectTheme: (PresentationThemeReference) -> Void
+    let openPearlFlow: () -> Void
     let openThemeSettings: () -> Void
     let openWallpaperSettings: () -> Void
     let openNameColorSettings: () -> Void
@@ -48,6 +49,7 @@ private final class ThemeSettingsControllerArguments {
     init(
         context: AccountContext,
         selectTheme: @escaping (PresentationThemeReference) -> Void,
+        openPearlFlow: @escaping () -> Void,
         openThemeSettings: @escaping () -> Void,
         openWallpaperSettings: @escaping () -> Void,
         openNameColorSettings: @escaping () -> Void,
@@ -68,6 +70,7 @@ private final class ThemeSettingsControllerArguments {
     ) {
         self.context = context
         self.selectTheme = selectTheme
+        self.openPearlFlow = openPearlFlow
         self.openThemeSettings = openThemeSettings
         self.openWallpaperSettings = openWallpaperSettings
         self.openNameColorSettings = openNameColorSettings
@@ -121,6 +124,7 @@ public enum ThemeSettingsEntryTag: ItemListItemTag {
 }
 
 private enum ThemeSettingsControllerEntry: ItemListNodeEntry {
+    case pearlFlow(PresentationTheme)
     case themeListHeader(PresentationTheme, String)
     case chatPreview(PresentationTheme, TelegramWallpaper, PresentationFontSize, PresentationChatBubbleCorners, PresentationStrings, PresentationDateTimeFormat, PresentationPersonNameOrder, [ChatPreviewMessageItem])
     case themes(PresentationTheme, PresentationStrings, [PresentationThemeReference], PresentationThemeReference, Bool, [String: [StickerPackItem]], [Int64: PresentationThemeAccentColor], [Int64: TelegramWallpaper])
@@ -142,7 +146,7 @@ private enum ThemeSettingsControllerEntry: ItemListNodeEntry {
     
     var section: ItemListSectionId {
         switch self {
-        case .themeListHeader, .chatPreview, .themes, .chatTheme, .wallpaper, .nameColor:
+        case .pearlFlow, .themeListHeader, .chatPreview, .themes, .chatTheme, .wallpaper, .nameColor:
                 return ThemeSettingsControllerSection.chatPreview.rawValue
             case .autoNight, .autoNightTheme:
                 return ThemeSettingsControllerSection.nightMode.rawValue
@@ -159,6 +163,8 @@ private enum ThemeSettingsControllerEntry: ItemListNodeEntry {
     
     var stableId: Int32 {
         switch self {
+        case .pearlFlow:
+            return -1
         case .themeListHeader:
             return 0
         case .chatPreview:
@@ -200,6 +206,11 @@ private enum ThemeSettingsControllerEntry: ItemListNodeEntry {
     
     static func ==(lhs: ThemeSettingsControllerEntry, rhs: ThemeSettingsControllerEntry) -> Bool {
         switch lhs {
+            case let .pearlFlow(theme):
+                if case let .pearlFlow(other) = rhs {
+                    return theme === other
+                }
+                return false
             case let .chatPreview(lhsTheme, lhsWallpaper, lhsFontSize, lhsChatBubbleCorners, lhsStrings, lhsTimeFormat, lhsNameOrder, lhsItems):
                 if case let .chatPreview(rhsTheme, rhsWallpaper, rhsFontSize, rhsChatBubbleCorners, rhsStrings, rhsTimeFormat, rhsNameOrder, rhsItems) = rhs, lhsTheme === rhsTheme, lhsWallpaper == rhsWallpaper, lhsFontSize == rhsFontSize, lhsChatBubbleCorners == rhsChatBubbleCorners, lhsStrings === rhsStrings, lhsTimeFormat == rhsTimeFormat, lhsNameOrder == rhsNameOrder, lhsItems == rhsItems {
                     return true
@@ -318,6 +329,10 @@ private enum ThemeSettingsControllerEntry: ItemListNodeEntry {
     func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
         let arguments = arguments as! ThemeSettingsControllerArguments
         switch self {
+            case .pearlFlow:
+                return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "Pearl Flow", label: "", sectionId: self.section, style: .blocks, action: {
+                    arguments.openPearlFlow()
+                })
             case let .chatPreview(theme, wallpaper, fontSize, chatBubbleCorners, strings, dateTimeFormat, nameDisplayOrder, items):
                 return ThemeSettingsChatPreviewItem(context: arguments.context, systemStyle: .glass, theme: theme, componentTheme: theme, strings: strings, sectionId: self.section, fontSize: fontSize, chatBubbleCorners: chatBubbleCorners, wallpaper: wallpaper, dateTimeFormat: dateTimeFormat, nameDisplayOrder: nameDisplayOrder, messageItems: items)
             case let .themes(theme, strings, chatThemes, currentTheme, nightMode, animatedEmojiStickers, themeSpecificAccentColors, themeSpecificChatWallpapers):
@@ -417,6 +432,7 @@ private func themeSettingsControllerEntries(
     
     let strings = presentationData.strings
     let title = presentationData.autoNightModeTriggered ? strings.Appearance_ColorThemeNight.uppercased() : strings.Appearance_ColorTheme.uppercased()
+    entries.append(.pearlFlow(presentationData.theme))
     entries.append(.themeListHeader(presentationData.theme, title))
     
     let nameColor: PeerColor
@@ -571,6 +587,29 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
     
     let arguments = ThemeSettingsControllerArguments(context: context, selectTheme: { theme in
         selectThemeImpl?(theme)
+    }, openPearlFlow: {
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        let sheet = ActionSheetController(presentationData: presentationData)
+        let items: [ActionSheetItem] = PearlFlowPreset.allCases.map { preset in
+            return ActionSheetButtonItem(title: preset.rawValue, color: .accent, action: { [weak sheet] in
+                sheet?.dismissAnimated()
+                let theme = makePearlFlowTheme(preset)
+                guard let encoded = encodePresentationTheme(theme), let data = encoded.data(using: .utf8) else {
+                    return
+                }
+                let resource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
+                context.sharedContext.accountManager.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: true)
+                let reference = PresentationThemeReference.local(PresentationLocalTheme(title: preset.rawValue, resource: resource, resolvedWallpaper: theme.chat.defaultWallpaper))
+                pushControllerImpl?(ThemePreviewController(context: context, previewTheme: theme, source: .settings(reference, theme.chat.defaultWallpaper, false)))
+            })
+        }
+        sheet.setItemGroups([
+            ActionSheetItemGroup(items: items),
+            ActionSheetItemGroup(items: [ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak sheet] in
+                sheet?.dismissAnimated()
+            })])
+        ])
+        presentControllerImpl?(sheet, nil)
     }, openThemeSettings: {
         pushControllerImpl?(themePickerController(context: context))
     }, openWallpaperSettings: {
@@ -1592,4 +1631,46 @@ private final class ContextControllerContentSourceImpl: ContextControllerContent
     
     func animatedIn() {
     }
+}
+
+// Local presets use Telegram's theme codec and preview/apply lifecycle. They do not
+// replace account, message, call, story or notification implementations.
+private enum PearlFlowPreset: String, CaseIterable {
+    case mist = "Pearl Mist"
+    case arctic = "Arctic Pearl"
+    case midnight = "Midnight Pearl"
+}
+
+private func makePearlFlowTheme(_ preset: PearlFlowPreset) -> PresentationTheme {
+    let dark = preset != .arctic
+    let base = makeDefaultPresentationTheme(reference: dark ? .night : .day, serviceBackgroundColor: nil)
+    let accent = UIColor(rgb: dark ? 0x94BFE5 : 0x246D9C)
+    let background = UIColor(rgb: preset == .mist ? 0x30343E : (dark ? 0x181C25 : 0xEAF0F5))
+    let surface = UIColor(rgb: preset == .mist ? 0x3B414D : (dark ? 0x242B38 : 0xFAFCFE))
+    let text = UIColor(rgb: dark ? 0xF4F5F8 : 0x202B39)
+    let secondary = UIColor(rgb: dark ? 0xBCC6D5 : 0x526477)
+    let separator = UIColor(rgb: dark ? 0x4B5567 : 0xCCD7E2)
+    let wallpaperColors: [UInt32]
+    switch preset {
+    case .mist:
+        wallpaperColors = [0x252832, 0x606D80, 0x343C4B, 0x8793A3]
+    case .arctic:
+        wallpaperColors = [0xF5F5F2, 0xD8E5EF, 0xEBE9F0, 0xC7DCE9]
+    case .midnight:
+        wallpaperColors = [0x141823, 0x303D51, 0x1D2635, 0x46556A]
+    }
+    let wallpaper = TelegramWallpaper.gradient(TelegramWallpaper.Gradient(id: nil, colors: wallpaperColors, settings: WallpaperSettings()))
+    let theme = customizePresentationTheme(base, editing: true, title: preset.rawValue, accentColor: accent, outgoingAccentColor: nil, backgroundColors: [], bubbleColors: dark ? [0x354F6C, 0x4B6989] : [0xC5DCEE, 0xDEEAF4], animateBubbleColors: false, wallpaper: wallpaper)
+    return PresentationTheme(
+        name: .custom(preset.rawValue), index: theme.index, referenceTheme: theme.referenceTheme,
+        overallDarkAppearance: dark, intro: theme.intro, passcode: theme.passcode,
+        rootController: theme.rootController.withUpdated(
+            tabBar: theme.rootController.tabBar.withUpdated(backgroundColor: surface.withAlphaComponent(0.88), separatorColor: separator, selectedIconColor: accent, selectedTextColor: accent),
+            navigationBar: theme.rootController.navigationBar.withUpdated(primaryTextColor: text, secondaryTextColor: secondary, blurredBackgroundColor: surface.withAlphaComponent(0.88), opaqueBackgroundColor: surface, separatorColor: separator)
+        ),
+        list: theme.list.withUpdated(blocksBackgroundColor: background, modalBlocksBackgroundColor: background, plainBackgroundColor: background, modalPlainBackgroundColor: background, itemPrimaryTextColor: text, itemSecondaryTextColor: secondary, itemAccentColor: accent, itemBlocksBackgroundColor: surface, itemModalBlocksBackgroundColor: surface, itemBlocksSeparatorColor: separator, itemPlainSeparatorColor: separator),
+        chatList: theme.chatList.withUpdated(backgroundColor: background, itemSeparatorColor: separator, itemBackgroundColor: background, pinnedItemBackgroundColor: surface, titleColor: text, dateTextColor: secondary, authorNameColor: text, messageTextColor: secondary, checkmarkColor: accent, unreadBadgeActiveBackgroundColor: accent, unreadBadgeActiveTextColor: background, storyUnseenColors: PresentationThemeGradientColors(topColor: accent, bottomColor: UIColor(rgb: dark ? 0xCDD9E9 : 0x739AC5))),
+        chat: theme.chat, actionSheet: theme.actionSheet, contextMenu: theme.contextMenu,
+        inAppNotification: theme.inAppNotification, chart: theme.chart, preview: theme.preview
+    )
 }
