@@ -43,6 +43,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Simulator-only: use Telegram's existing provisioning switch.
+          echo 'build --//Telegram:disableProvisioningProfiles' >> .bazelrc
           python3 build-system/Make/Make.py build --configurationPath=build-system/pearl-compile-only.json --xcodeManagedCodesigning --buildNumber=1 --configuration=debug_sim_arm64 2>&1 | tee pearl-build.log
       - name: Preserve build log
         if: always()
