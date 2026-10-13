@@ -1,0 +1,49 @@
+name: Pearl Flow native verification
+on:
+  push:
+    branches: [pearl-flow-macos-check]
+    paths:
+      - '.github/workflows/pearl-native-check.yml'
+      - 'submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift'
+permissions:
+  contents: read
+concurrency:
+  group: pearl-native-verification
+  cancel-in-progress: true
+jobs:
+  simulator-build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Parse modified Swift source
+        run: xcrun swiftc -frontend -parse submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
+      - name: Create compile-only configuration
+        run: |
+          python3 - <<'PY'
+          import json
+          config = json.load(open('build-system/template_minimal_development_configuration.json'))
+          config.update(bundle_id='org.pearlflow.compilecheck', api_id='0', api_hash='00000000000000000000000000000000', team_id='PEARLCHECK0', app_specific_url_scheme='pearlflow')
+          with open('build-system/pearl-compile-only.json', 'w') as output:
+              json.dump(config, output)
+          PY
+          echo 'Compile verification only. API credentials are intentionally invalid; this is not a usable Telegram client.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Build full Telegram simulator target
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 build-system/Make/Make.py build --configurationPath=build-system/pearl-compile-only.json --xcodeManagedCodesigning --buildNumber=1 --configuration=debug_sim_arm64 2>&1 | tee pearl-build.log
+      - name: Preserve build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pearl-build-log
+          path: pearl-build.log
+          if-no-files-found: ignore
+          retention-days: 3
