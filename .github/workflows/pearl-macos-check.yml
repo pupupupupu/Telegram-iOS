@@ -1,0 +1,19 @@
+name: Pearl Flow macOS readiness
+on:
+  push:
+    branches: [pearl-flow-macos-check]
+    paths: ['.github/workflows/pearl-macos-check.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - name: Inspect installed tools (no application build)
+        run: |
+          xcodebuild -version
+          ls -d /Applications/Xcode*.app
+          xcrun simctl list runtimes
+          df -h .
+          echo 'Infrastructure inspection only; application not built.' >> "$GITHUB_STEP_SUMMARY"
