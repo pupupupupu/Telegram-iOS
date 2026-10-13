@@ -584,6 +584,9 @@ public final class AudioWaveformComponent: Component {
                 let invScale = 1.0 / max(1.0, CGFloat(maxSample))
                 
                 let commonRevealFraction = listViewAnimationCurveSystem(self.revealProgress)
+                let usePearlFlow = component.pearlFlow && !component.isViewOnceMessage && component.shimmerColor == nil
+                let pearlPhase = UIAccessibility.isReduceMotionEnabled ? CGFloat(0.0) : playbackProgress
+                let pearlReflectionColor = UIColor(rgb: 0xA8C6DF)
                 
                 var lastHeight: CGFloat = 0.0
                 for i in 0 ..< numSamples {
@@ -627,10 +630,10 @@ public final class AudioWaveformComponent: Component {
                     // The highlight follows the real player/scrubbing position. No
                     // independent timer: pausing freezes it and seeking moves it.
                     var playedColor = component.foregroundColor
-                    if component.pearlFlow && !component.isViewOnceMessage && component.shimmerColor == nil {
-                        let phase = UIAccessibility.isReduceMotionEnabled ? CGFloat(0.0) : playbackProgress
-                        let reflection = 0.14 * (1.0 + cos((startFraction - phase) * CGFloat.pi * 2.0))
-                        playedColor = playedColor.mixedWith(.white, alpha: reflection)
+                    if usePearlFlow {
+                        let reflection = 0.2 * (1.0 + cos((startFraction - pearlPhase) * CGFloat.pi * 2.0))
+                        // A muted blue reflection remains visible on white outgoing waveforms.
+                        playedColor = playedColor.mixedWith(pearlReflectionColor, alpha: reflection)
                     }
                     if component.backgroundColor.alpha > 0.0 {
                         var backgroundColor = component.backgroundColor
