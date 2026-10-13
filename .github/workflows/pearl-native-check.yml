@@ -5,11 +5,13 @@ on:
     paths:
       - '.github/workflows/pearl-native-check.yml'
       - 'submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift'
+      - 'submodules/TelegramUI/Components/AudioWaveformComponent/Sources/AudioWaveformComponent.swift'
+      - 'submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift'
 permissions:
   contents: read
 concurrency:
   group: pearl-native-verification
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   simulator-build:
     runs-on: macos-26
@@ -22,7 +24,10 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
       - name: Parse modified Swift source
-        run: xcrun swiftc -frontend -parse submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
+        run: |
+          xcrun swiftc -frontend -parse submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
+          xcrun swiftc -frontend -parse submodules/TelegramUI/Components/AudioWaveformComponent/Sources/AudioWaveformComponent.swift
+          xcrun swiftc -frontend -parse submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift
       - name: Fetch upstream submodules
         run: |
           git submodule init
