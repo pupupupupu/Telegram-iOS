@@ -1320,6 +1320,7 @@ public final class ChatMessageInteractiveFileNode: ASDisplayNode {
                                         backgroundColor: isTranscriptionInProgress ? messageTheme.mediaInactiveControlColor : waveformColor,
                                         foregroundColor: messageTheme.mediaActiveControlColor,
                                         shimmerColor: isTranscriptionInProgress ? messageTheme.mediaActiveControlColor : nil,
+                                        pearlFlow: ["Pearl Mist", "Arctic Pearl", "Midnight Pearl"].contains(arguments.presentationData.theme.theme.name.string),
                                         style: .bottom,
                                         samples: audioWaveform?.samples ?? Data(),
                                         peak: audioWaveform?.peak ?? 0,
