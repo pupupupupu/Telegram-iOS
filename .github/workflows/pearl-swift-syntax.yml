@@ -1,0 +1,27 @@
+name: Pearl Flow Swift syntax
+on:
+  push:
+    branches: [pearl-flow-macos-check]
+    paths:
+      - '.github/workflows/pearl-swift-syntax.yml'
+      - 'submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift'
+      - 'submodules/TelegramUI/Components/AudioWaveformComponent/Sources/AudioWaveformComponent.swift'
+      - 'submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift'
+permissions:
+  contents: read
+jobs:
+  swift-parse:
+    runs-on: macos-26
+    timeout-minutes: 10
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse all Pearl Flow changes
+        run: |
+          xcrun swiftc -frontend -parse submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
+          xcrun swiftc -frontend -parse submodules/TelegramUI/Components/AudioWaveformComponent/Sources/AudioWaveformComponent.swift
+          xcrun swiftc -frontend -parse submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift
+          echo 'Swift syntax passed. This is not type checking, an app build or a runtime test.' >> "$GITHUB_STEP_SUMMARY"
