@@ -593,14 +593,15 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
         let items: [ActionSheetItem] = PearlFlowPreset.allCases.map { preset in
             return ActionSheetButtonItem(title: preset.rawValue, color: .accent, action: { [weak sheet] in
                 sheet?.dismissAnimated()
-                let theme = makePearlFlowTheme(preset)
-                guard let encoded = encodePresentationTheme(theme), let data = encoded.data(using: .utf8) else {
-                    return
-                }
-                let resource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
-                context.sharedContext.accountManager.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: true)
-                let reference = PresentationThemeReference.local(PresentationLocalTheme(title: preset.rawValue, resource: resource, resolvedWallpaper: theme.chat.defaultWallpaper))
-                pushControllerImpl?(ThemePreviewController(context: context, previewTheme: theme, source: .settings(reference, theme.chat.defaultWallpaper, false)))
+                pushControllerImpl?(PearlFlowEditorController(context: context, preset: preset, preview: { theme in
+                    guard let encoded = encodePresentationTheme(theme), let data = encoded.data(using: .utf8) else {
+                        return
+                    }
+                    let resource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
+                    context.sharedContext.accountManager.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: true)
+                    let reference = PresentationThemeReference.local(PresentationLocalTheme(title: preset.rawValue, resource: resource, resolvedWallpaper: theme.chat.defaultWallpaper))
+                    pushControllerImpl?(ThemePreviewController(context: context, previewTheme: theme, source: .settings(reference, theme.chat.defaultWallpaper, false)))
+                }))
             })
         }
         sheet.setItemGroups([
@@ -1641,7 +1642,214 @@ private enum PearlFlowPreset: String, CaseIterable {
     case midnight = "Midnight Pearl"
 }
 
-private func makePearlFlowTheme(_ preset: PearlFlowPreset) -> PresentationTheme {
+// Draft values stay in this controller until the standard theme preview is applied.
+private final class PearlFlowEditorController: ViewController, UIColorPickerViewControllerDelegate {
+    private let preset: PearlFlowPreset
+    private let preview: (PresentationTheme) -> Void
+    private let russian: Bool
+    private var colors: [UInt32]
+    private let initialColors: [UInt32]
+    private var selectedColorIndex = 0
+    private let scrollView = UIScrollView()
+    private let stack = UIStackView()
+    private let swatch = PearlFlowSwatchView()
+    private let opacitySlider = UISlider()
+    private let opacityLabel = UILabel()
+    private var colorButtons: [UIButton] = []
+
+    init(context: AccountContext, preset: PearlFlowPreset, preview: @escaping (PresentationTheme) -> Void) {
+        self.preset = preset
+        self.preview = preview
+        let data = context.sharedContext.currentPresentationData.with { $0 }
+        self.russian = data.strings.baseLanguageCode.hasPrefix("ru")
+        let theme = makePearlFlowTheme(preset)
+        if case let .gradient(gradient) = theme.chat.defaultWallpaper {
+            self.colors = gradient.colors
+            self.initialColors = gradient.colors
+        } else {
+            self.colors = [0x252832, 0x606D80, 0x343C4B, 0x8793A3]
+            self.initialColors = [0x252832, 0x606D80, 0x343C4B, 0x8793A3]
+        }
+        super.init(navigationBarPresentationData: NavigationBarPresentationData(presentationTheme: data.theme, presentationStrings: data.strings, style: .glass))
+        self._hasGlassStyle = true
+        self.navigationItem.title = preset.rawValue
+        self.navigationItem.backBarButtonItem = UIBarButtonItem(title: data.strings.Common_Back, style: .plain, target: nil, action: nil)
+    }
+
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadDisplayNode() {
+        super.loadDisplayNode()
+        self.displayNode = ASDisplayNode()
+        self.displayNodeDidLoad()
+        let view = self.displayNode.view
+        view.overrideUserInterfaceStyle = self.preset == .arctic ? .light : .dark
+        view.backgroundColor = UIColor(rgb: self.preset == .arctic ? 0xEAF0F5 : 0x252832)
+        self.scrollView.alwaysBounceVertical = true
+        view.addSubview(self.scrollView)
+        self.stack.axis = .vertical
+        self.stack.spacing = 20.0
+        self.stack.translatesAutoresizingMaskIntoConstraints = false
+        self.scrollView.addSubview(self.stack)
+        NSLayoutConstraint.activate([
+            self.stack.leadingAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.leadingAnchor, constant: 20.0),
+            self.stack.trailingAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.trailingAnchor, constant: -20.0),
+            self.stack.topAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.topAnchor, constant: 16.0),
+            self.stack.bottomAnchor.constraint(equalTo: self.scrollView.contentLayoutGuide.bottomAnchor, constant: -32.0),
+            self.stack.widthAnchor.constraint(equalTo: self.scrollView.frameLayoutGuide.widthAnchor, constant: -40.0)
+        ])
+        self.swatch.isAccessibilityElement = true
+        self.swatch.accessibilityLabel = self.russian ? "Предпросмотр градиента" : "Gradient preview"
+        self.swatch.heightAnchor.constraint(equalToConstant: 220.0).isActive = true
+        self.stack.addArrangedSubview(self.swatch)
+        self.addLabel(self.russian ? "Цвета фона" : "Background colors", style: .headline)
+        let row = UIStackView()
+        row.axis = .horizontal
+        row.spacing = 12.0
+        row.distribution = .fillEqually
+        for i in self.colors.indices {
+            let button = UIButton(type: .system)
+            button.tag = i
+            button.layer.cornerRadius = 18.0
+            button.layer.borderWidth = 1.0
+            button.layer.borderColor = UIColor.secondaryLabel.withAlphaComponent(0.35).cgColor
+            button.heightAnchor.constraint(equalToConstant: 56.0).isActive = true
+            button.accessibilityLabel = self.russian ? "Цвет фона \(i + 1)" : "Background color \(i + 1)"
+            button.addTarget(self, action: #selector(self.editColor(_:)), for: .touchUpInside)
+            self.colorButtons.append(button)
+            row.addArrangedSubview(button)
+        }
+        self.stack.addArrangedSubview(row)
+        self.opacityLabel.font = UIFont.preferredFont(forTextStyle: .headline)
+        self.opacityLabel.adjustsFontForContentSizeCategory = true
+        self.opacityLabel.textColor = .label
+        self.opacityLabel.numberOfLines = 0
+        self.stack.addArrangedSubview(self.opacityLabel)
+        self.opacitySlider.minimumValue = 0.0
+        self.opacitySlider.maximumValue = 35.0
+        self.opacitySlider.value = 12.0
+        self.opacitySlider.tintColor = UIColor(rgb: 0x94BFE5)
+        self.opacitySlider.accessibilityLabel = self.russian ? "Прозрачность панелей" : "Panel transparency"
+        self.opacitySlider.addTarget(self, action: #selector(self.updateDraft), for: .valueChanged)
+        self.stack.addArrangedSubview(self.opacitySlider)
+        self.addLabel(self.russian ? "Меняется прозрачность навигации и нижней панели. Режим уменьшения прозрачности iOS имеет приоритет. Здесь показан образец материала; полный вид темы откроется в предпросмотре." : "Changes navigation and tab bar transparency. iOS Reduce Transparency takes priority. This is a material sample; open the full theme preview before applying.", style: .footnote)
+        self.addButton(self.russian ? "Предпросмотр темы" : "Preview theme", action: #selector(self.previewPressed), prominent: true)
+        self.addButton(self.russian ? "Сбросить изменения" : "Reset changes", action: #selector(self.resetPressed), prominent: false)
+        self.addLabel(self.russian ? "Фотографию для фона можно выбрать в стандартном разделе «Фон для чатов» после применения темы. Выход из редактора не меняет текущую тему." : "Choose a background photo in Telegram's Chat Wallpaper settings after applying. Leaving this editor does not change your current theme.", style: .footnote)
+        self.updateDraft()
+    }
+
+    private func addLabel(_ text: String, style: UIFont.TextStyle) {
+        let label = UILabel()
+        label.text = text
+        label.font = UIFont.preferredFont(forTextStyle: style)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = style == .footnote ? .secondaryLabel : .label
+        label.numberOfLines = 0
+        self.stack.addArrangedSubview(label)
+    }
+
+    private func addButton(_ title: String, action: Selector, prominent: Bool) {
+        let button = UIButton(type: .system)
+        var configuration = prominent ? UIButton.Configuration.filled() : UIButton.Configuration.tinted()
+        configuration.title = title
+        configuration.cornerStyle = .capsule
+        configuration.baseBackgroundColor = UIColor(rgb: 0x94BFE5)
+        configuration.baseForegroundColor = prominent ? UIColor(rgb: 0x182B40) : UIColor.label
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 18.0, leading: 16.0, bottom: 18.0, trailing: 16.0)
+        button.configuration = configuration
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.titleLabel?.numberOfLines = 0
+        button.addTarget(self, action: action, for: .touchUpInside)
+        self.stack.addArrangedSubview(button)
+    }
+
+    @objc private func updateDraft() {
+        let transparency = Int(self.opacitySlider.value.rounded())
+        self.opacityLabel.text = (self.russian ? "Прозрачность панелей: " : "Panel transparency: ") + "\(transparency)%"
+        self.opacitySlider.accessibilityValue = "\(transparency)%"
+        self.swatch.update(colors: self.colors, opacity: 1.0 - CGFloat(transparency) / 100.0)
+        for (i, button) in self.colorButtons.enumerated() {
+            button.backgroundColor = UIColor(rgb: self.colors[i])
+            button.accessibilityValue = String(format: "#%06X", self.colors[i])
+        }
+    }
+
+    @objc private func editColor(_ sender: UIButton) {
+        self.selectedColorIndex = sender.tag
+        let picker = UIColorPickerViewController()
+        picker.supportsAlpha = false
+        picker.selectedColor = UIColor(rgb: self.colors[sender.tag])
+        picker.delegate = self
+        self.present(picker, animated: true)
+    }
+
+    func colorPickerViewControllerDidSelectColor(_ viewController: UIColorPickerViewController) {
+        var r: CGFloat = 0.0
+        var g: CGFloat = 0.0
+        var b: CGFloat = 0.0
+        var a: CGFloat = 0.0
+        guard viewController.selectedColor.getRed(&r, green: &g, blue: &b, alpha: &a) else { return }
+        func byte(_ value: CGFloat) -> UInt32 { return UInt32((max(0.0, min(1.0, value)) * 255.0).rounded()) }
+        self.colors[self.selectedColorIndex] = (byte(r) << 16) | (byte(g) << 8) | byte(b)
+        self.updateDraft()
+    }
+
+    @objc private func resetPressed() {
+        self.colors = self.initialColors
+        self.opacitySlider.value = 12.0
+        self.updateDraft()
+    }
+
+    @objc private func previewPressed() {
+        self.preview(makePearlFlowTheme(self.preset, panelOpacity: 1.0 - CGFloat(self.opacitySlider.value.rounded()) / 100.0, wallpaperColorsOverride: self.colors))
+    }
+
+    override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        super.containerLayoutUpdated(layout, transition: transition)
+        let top = self.navigationLayout(layout: layout).navigationFrame.maxY
+        let width = min(680.0, layout.size.width)
+        self.scrollView.frame = CGRect(x: (layout.size.width - width) / 2.0, y: top, width: width, height: max(0.0, layout.size.height - top))
+        self.scrollView.contentInset.bottom = layout.intrinsicInsets.bottom
+    }
+}
+
+private final class PearlFlowSwatchView: UIView {
+    private let gradient = CAGradientLayer()
+    private let material = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        self.layer.cornerRadius = 32.0
+        self.clipsToBounds = true
+        self.gradient.startPoint = CGPoint(x: 0.0, y: 0.0)
+        self.gradient.endPoint = CGPoint(x: 1.0, y: 1.0)
+        self.layer.addSublayer(self.gradient)
+        self.material.layer.cornerRadius = 24.0
+        self.material.clipsToBounds = true
+        self.addSubview(self.material)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func update(colors: [UInt32], opacity: CGFloat) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        self.gradient.colors = colors.map { UIColor(rgb: $0).cgColor }
+        CATransaction.commit()
+        self.material.alpha = UIAccessibility.isReduceTransparencyEnabled ? 1.0 : opacity
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        self.gradient.frame = self.bounds
+        self.material.frame = self.bounds.insetBy(dx: 24.0, dy: 62.0)
+    }
+}
+
+private func makePearlFlowTheme(_ preset: PearlFlowPreset, panelOpacity: CGFloat = 0.88, wallpaperColorsOverride: [UInt32]? = nil) -> PresentationTheme {
     let dark = preset != .arctic
     let base = makeDefaultPresentationTheme(reference: dark ? .night : .day, serviceBackgroundColor: nil)
     let accent = UIColor(rgb: dark ? 0x94BFE5 : 0x246D9C)
@@ -1659,14 +1867,14 @@ private func makePearlFlowTheme(_ preset: PearlFlowPreset) -> PresentationTheme 
     case .midnight:
         wallpaperColors = [0x141823, 0x303D51, 0x1D2635, 0x46556A]
     }
-    let wallpaper = TelegramWallpaper.gradient(TelegramWallpaper.Gradient(id: nil, colors: wallpaperColors, settings: WallpaperSettings()))
+    let wallpaper = TelegramWallpaper.gradient(TelegramWallpaper.Gradient(id: nil, colors: wallpaperColorsOverride ?? wallpaperColors, settings: WallpaperSettings()))
     let theme = customizePresentationTheme(base, editing: true, title: preset.rawValue, accentColor: accent, outgoingAccentColor: nil, backgroundColors: [], bubbleColors: dark ? [0x354F6C, 0x4B6989] : [0xC5DCEE, 0xDEEAF4], animateBubbleColors: false, wallpaper: wallpaper)
     return PresentationTheme(
         name: .custom(preset.rawValue), index: theme.index, referenceTheme: theme.referenceTheme,
         overallDarkAppearance: dark, intro: theme.intro, passcode: theme.passcode,
         rootController: theme.rootController.withUpdated(
-            tabBar: theme.rootController.tabBar.withUpdated(backgroundColor: surface.withAlphaComponent(0.88), separatorColor: separator, selectedIconColor: accent, selectedTextColor: accent),
-            navigationBar: theme.rootController.navigationBar.withUpdated(primaryTextColor: text, secondaryTextColor: secondary, blurredBackgroundColor: surface.withAlphaComponent(0.88), opaqueBackgroundColor: surface, separatorColor: separator)
+            tabBar: theme.rootController.tabBar.withUpdated(backgroundColor: surface.withAlphaComponent(panelOpacity), separatorColor: separator, selectedIconColor: accent, selectedTextColor: accent),
+            navigationBar: theme.rootController.navigationBar.withUpdated(primaryTextColor: text, secondaryTextColor: secondary, blurredBackgroundColor: surface.withAlphaComponent(panelOpacity), opaqueBackgroundColor: surface, separatorColor: separator)
         ),
         list: theme.list.withUpdated(blocksBackgroundColor: background, modalBlocksBackgroundColor: background, plainBackgroundColor: background, modalPlainBackgroundColor: background, itemPrimaryTextColor: text, itemSecondaryTextColor: secondary, itemAccentColor: accent, itemBlocksBackgroundColor: surface, itemModalBlocksBackgroundColor: surface, itemBlocksSeparatorColor: separator, itemPlainSeparatorColor: separator),
         chatList: theme.chatList.withUpdated(backgroundColor: background, itemSeparatorColor: separator, itemBackgroundColor: background, pinnedItemBackgroundColor: surface, titleColor: text, dateTextColor: secondary, authorNameColor: text, messageTextColor: secondary, checkmarkColor: accent, unreadBadgeActiveBackgroundColor: accent, unreadBadgeActiveTextColor: background, storyUnseenColors: PresentationThemeGradientColors(topColor: accent, bottomColor: UIColor(rgb: dark ? 0xCDD9E9 : 0x739AC5))),
