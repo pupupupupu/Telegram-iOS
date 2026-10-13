@@ -15,6 +15,7 @@ public final class AudioWaveformComponent: Component {
     public let backgroundColor: UIColor
     public let foregroundColor: UIColor
     public let shimmerColor: UIColor?
+    public let pearlFlow: Bool
     public let style: Style
     public let samples: Data
     public let peak: Int32
@@ -27,6 +28,7 @@ public final class AudioWaveformComponent: Component {
         backgroundColor: UIColor,
         foregroundColor: UIColor,
         shimmerColor: UIColor?,
+        pearlFlow: Bool = false,
         style: Style,
         samples: Data,
         peak: Int32,
@@ -38,6 +40,7 @@ public final class AudioWaveformComponent: Component {
         self.backgroundColor = backgroundColor
         self.foregroundColor = foregroundColor
         self.shimmerColor = shimmerColor
+        self.pearlFlow = pearlFlow
         self.style = style
         self.samples = samples
         self.peak = peak
@@ -55,6 +58,9 @@ public final class AudioWaveformComponent: Component {
             return false
         }
         if lhs.shimmerColor != rhs.shimmerColor {
+            return false
+        }
+        if lhs.pearlFlow != rhs.pearlFlow {
             return false
         }
         if lhs.style != rhs.style {
@@ -618,12 +624,20 @@ public final class AudioWaveformComponent: Component {
                         gravityMultiplierY = 0.5
                     }
                     
+                    // The highlight follows the real player/scrubbing position. No
+                    // independent timer: pausing freezes it and seeking moves it.
+                    var playedColor = component.foregroundColor
+                    if component.pearlFlow && !component.isViewOnceMessage && component.shimmerColor == nil {
+                        let phase = UIAccessibility.isReduceMotionEnabled ? CGFloat(0.0) : playbackProgress
+                        let reflection = 0.14 * (1.0 + cos((startFraction - phase) * CGFloat.pi * 2.0))
+                        playedColor = playedColor.mixedWith(.white, alpha: reflection)
+                    }
                     if component.backgroundColor.alpha > 0.0 {
                         var backgroundColor = component.backgroundColor
                         if component.isViewOnceMessage {
                             backgroundColor = component.foregroundColor.withMultipliedAlpha(0.0)
                         }
-                        context.setFillColor(backgroundColor.mixedWith(component.foregroundColor, alpha: colorMixFraction).cgColor)
+                        context.setFillColor(backgroundColor.mixedWith(playedColor, alpha: colorMixFraction).cgColor)
                     } else {
                         context.setFillColor(component.foregroundColor.cgColor)
                     }
