@@ -28,6 +28,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
     public let topRightButtonsSize: CGSize
     public let titleWidth: CGFloat
     public let bottomHeight: CGFloat
+    public let allowsLocalEditing: Bool
     public let action: (ProfileGiftsContext.State.StarGift) -> Void
     
     public init(
@@ -44,6 +45,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
         topRightButtonsSize: CGSize,
         titleWidth: CGFloat,
         bottomHeight: CGFloat,
+        allowsLocalEditing: Bool = false,
         action: @escaping (ProfileGiftsContext.State.StarGift) -> Void
     ) {
         self.context = context
@@ -59,6 +61,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
         self.topRightButtonsSize = topRightButtonsSize
         self.titleWidth = titleWidth
         self.bottomHeight = bottomHeight
+        self.allowsLocalEditing = allowsLocalEditing
         self.action = action
     }
     
@@ -96,13 +99,14 @@ public final class PeerInfoGiftsCoverComponent: Component {
         if lhs.titleWidth != rhs.titleWidth {
             return false
         }
+        if lhs.allowsLocalEditing != rhs.allowsLocalEditing { return false }
         if lhs.bottomHeight != rhs.bottomHeight {
             return false
         }
         return true
     }
     
-    public final class View: UIView {
+    public final class View: UIView, UIGestureRecognizerDelegate {
         private var currentSize: CGSize?
         private var component: PeerInfoGiftsCoverComponent?
         private var state: EmptyComponentState?
@@ -119,6 +123,15 @@ public final class PeerInfoGiftsCoverComponent: Component {
         private var isCurrentlyInHierarchy = false
         
         private var isUpdating = false
+        private var localLayoutKey: String?
+        private var localLayout: [String: [String: Double]] = [:]
+        private var selectedGift: AnyHashable?
+        private var isEditingLayout = false
+        private var initialPinchScale: Double = 1.0
+        private var dragOffset = CGPoint.zero
+        private let editingToolbar = UIStackView()
+        private let editingHint = UILabel()
+        private var layoutControls: [UIButton] = []
         
         override public init(frame: CGRect) {
             super.init(frame: frame)
@@ -142,7 +155,43 @@ public final class PeerInfoGiftsCoverComponent: Component {
                 self.isCurrentlyInHierarchy = false
             }
             
-            self.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(self.tapped(_:))))
+            let tap = UITapGestureRecognizer(target: self, action: #selector(self.tapped(_:)))
+            let hold = UILongPressGestureRecognizer(target: self, action: #selector(self.moveGift(_:)))
+            hold.minimumPressDuration = 0.45
+            hold.delegate = self
+            tap.require(toFail: hold)
+            self.addGestureRecognizer(tap)
+            self.addGestureRecognizer(hold)
+            let pinch = UIPinchGestureRecognizer(target: self, action: #selector(self.resizeGift(_:)))
+            pinch.delegate = self
+            self.addGestureRecognizer(pinch)
+            self.editingToolbar.axis = .horizontal
+            self.editingToolbar.spacing = 4.0
+            self.editingToolbar.distribution = .fillEqually
+            self.editingToolbar.backgroundColor = UIColor(rgb: 0xEAF0F5)
+            self.editingToolbar.layer.cornerRadius = 18.0
+            for action in [#selector(self.cancelLayout), #selector(self.resetLayout), #selector(self.saveLayout)] {
+                let button = UIButton(type: .system)
+                button.titleLabel?.font = UIFont.preferredFont(forTextStyle: .subheadline)
+                button.titleLabel?.adjustsFontForContentSizeCategory = true
+                button.titleLabel?.numberOfLines = 2
+                button.tintColor = UIColor(rgb: 0x246D9C)
+                button.addTarget(self, action: action, for: .touchUpInside)
+                self.editingToolbar.addArrangedSubview(button)
+                self.layoutControls.append(button)
+            }
+            self.editingHint.font = UIFont.preferredFont(forTextStyle: .caption1)
+            self.editingHint.adjustsFontForContentSizeCategory = true
+            self.editingHint.numberOfLines = 0
+            self.editingHint.textAlignment = .center
+            self.editingHint.textColor = UIColor(rgb: 0x202B39)
+            self.editingHint.backgroundColor = UIColor(rgb: 0xEAF0F5)
+            self.editingHint.layer.cornerRadius = 10.0
+            self.editingHint.clipsToBounds = true
+            self.addSubview(self.editingToolbar)
+            self.addSubview(self.editingHint)
+            self.editingToolbar.isHidden = true
+            self.editingHint.isHidden = true
         }
         
         required public init?(coder aDecoder: NSCoder) {
@@ -153,6 +202,98 @@ public final class PeerInfoGiftsCoverComponent: Component {
             self.giftsDisposable?.dispose()
         }
         
+        private func readLocalLayout() {
+            guard let key = self.localLayoutKey else { self.localLayout = [:]; return }
+            let saved = UserDefaults.standard.dictionary(forKey: key) ?? [:]
+            var valid: [String: [String: Double]] = [:]
+            for (id, value) in saved.prefix(12) {
+                guard let value = value as? [String: Double],
+                      let x = value["x"], let y = value["y"], let scale = value["scale"],
+                      x.isFinite, y.isFinite, scale.isFinite else { continue }
+                valid[id] = ["x": max(0.0, min(1.0, x)), "y": max(0.0, min(1.0, y)), "scale": max(0.6, min(1.8, scale))]
+            }
+            self.localLayout = valid
+        }
+
+        private func setEditingLayout(_ editing: Bool) {
+            self.isEditingLayout = editing
+            self.editingToolbar.isHidden = !editing
+            self.editingHint.isHidden = !editing
+            if !editing { self.selectedGift = nil }
+            if editing { UIAccessibility.post(notification: .announcement, argument: self.editingHint.text) }
+            self.state?.updated(transition: .immediate)
+        }
+
+        @objc private func saveLayout() {
+            if let key = self.localLayoutKey {
+                let visible = Set(self.iconLayers.keys.compactMap { $0.base as? String })
+                UserDefaults.standard.set(self.localLayout.filter { visible.contains($0.key) }, forKey: key)
+            }
+            self.setEditingLayout(false)
+        }
+
+        @objc private func cancelLayout() {
+            self.readLocalLayout()
+            self.setEditingLayout(false)
+        }
+
+        @objc private func resetLayout() {
+            self.localLayout = [:]
+            self.selectedGift = nil
+            self.state?.updated(transition: .immediate)
+        }
+
+        public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let component = self.component, component.allowsLocalEditing,
+                  component.avatarTransitionFraction < 0.05 else { return false }
+            if gestureRecognizer is UIPinchGestureRecognizer { return self.isEditingLayout && self.selectedGift != nil }
+            let point = gestureRecognizer.location(in: self)
+            return self.iconLayers.values.contains { $0.frame.insetBy(dx: -8.0, dy: -8.0).contains(point) }
+        }
+
+        public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            return (gestureRecognizer is UIPinchGestureRecognizer && otherGestureRecognizer is UILongPressGestureRecognizer) || (gestureRecognizer is UILongPressGestureRecognizer && otherGestureRecognizer is UIPinchGestureRecognizer)
+        }
+
+        @objc private func moveGift(_ gesture: UILongPressGestureRecognizer) {
+            guard let component = self.component, component.allowsLocalEditing else { return }
+            let point = gesture.location(in: self)
+            if gesture.state == .began {
+                guard let entry = self.iconLayers.first(where: { $0.value.frame.insetBy(dx: -8.0, dy: -8.0).contains(point) }) else { return }
+                self.selectedGift = entry.key
+                self.dragOffset = CGPoint(x: entry.value.position.x - point.x, y: entry.value.position.y - point.y)
+                self.setEditingLayout(true)
+            }
+            guard gesture.state == .began || gesture.state == .changed,
+                  let id = self.selectedGift, let layer = self.iconLayers[id],
+                  let slug = id.base as? String else { return }
+            let center = self.clampedCenter(CGPoint(x: point.x + self.dragOffset.x, y: point.y + self.dragOffset.y), component: component)
+            let scale = self.localLayout[slug]?["scale"] ?? Double(layer.transform.m11)
+            self.localLayout[slug] = ["x": Double(center.x / max(1.0, self.bounds.width)), "y": Double(center.y / max(1.0, self.bounds.height)), "scale": max(0.6, min(1.8, scale))]
+            self.state?.updated(transition: .immediate)
+        }
+
+        @objc private func resizeGift(_ gesture: UIPinchGestureRecognizer) {
+            guard self.isEditingLayout, let id = self.selectedGift,
+                  let slug = id.base as? String, let layer = self.iconLayers[id] else { return }
+            if gesture.state == .began {
+                self.initialPinchScale = self.localLayout[slug]?["scale"] ?? Double(layer.transform.m11)
+            }
+            guard gesture.state == .began || gesture.state == .changed else { return }
+            var layout = self.localLayout[slug] ?? ["x": Double(layer.position.x / max(1.0, self.bounds.width)), "y": Double(layer.position.y / max(1.0, self.bounds.height))]
+            layout["scale"] = max(0.6, min(1.8, self.initialPinchScale * Double(gesture.scale)))
+            self.localLayout[slug] = layout
+            self.state?.updated(transition: .immediate)
+        }
+
+        private func clampedCenter(_ point: CGPoint, component: PeerInfoGiftsCoverComponent) -> CGPoint {
+            let size = self.currentSize ?? self.bounds.size
+            let inset: CGFloat = 30.0
+            let top = min(size.height * 0.5, component.statusBarHeight + 50.0)
+            let bottom = max(top, size.height - component.bottomHeight - inset)
+            return CGPoint(x: max(inset, min(max(inset, size.width - inset), point.x)), y: max(top, min(bottom, point.y)))
+        }
+
         @objc private func tapped(_ gestureRecognizer: UITapGestureRecognizer) {
             guard let component = self.component else {
                 return
@@ -160,13 +301,19 @@ public final class PeerInfoGiftsCoverComponent: Component {
             let location = gestureRecognizer.location(in: self)
             for (_, iconLayer) in self.iconLayers {
                 if iconLayer.frame.contains(location) {
-                    component.action(iconLayer.gift)
+                    if self.isEditingLayout {
+                        self.selectedGift = self.iconLayers.first(where: { $0.value === iconLayer })?.key
+                        self.state?.updated(transition: .immediate)
+                    } else {
+                        component.action(iconLayer.gift)
+                    }
                     break
                 }
             }
         }
         
         public override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            if self.isEditingLayout && (self.editingToolbar.frame.contains(point) || self.editingHint.frame.contains(point)) { return true }
             for (_, iconLayer) in self.iconLayers {
                 if iconLayer.frame.contains(point) {
                     return true
@@ -222,6 +369,28 @@ public final class PeerInfoGiftsCoverComponent: Component {
             
             let previousCurrentSize = self.currentSize
             self.currentSize = availableSize
+            let layoutKey = "PearlFlow.gifts.\(component.context.account.peerId.toInt64()).\(component.peerId.toInt64())"
+            if self.localLayoutKey != layoutKey {
+                self.localLayoutKey = layoutKey
+                self.readLocalLayout()
+                self.isEditingLayout = false
+                self.selectedGift = nil
+            }
+            if !component.allowsLocalEditing || component.avatarTransitionFraction >= 0.05 {
+                if self.isEditingLayout { self.readLocalLayout() }
+                self.isEditingLayout = false
+                self.selectedGift = nil
+            }
+            let russian = component.context.sharedContext.currentPresentationData.with { $0.strings.baseLanguageCode.hasPrefix("ru") }
+            let titles = russian ? ["Отмена", "Сбросить", "Готово"] : ["Cancel", "Reset", "Done"]
+            for (index, button) in self.layoutControls.enumerated() { button.setTitle(titles[index], for: .normal) }
+            self.editingHint.text = russian ? "Только на этом устройстве. Удерживайте и перемещайте подарок; щипком меняйте размер." : "This device only. Hold and drag a gift; pinch to resize."
+            let toolbarWidth = max(0.0, availableSize.width - 24.0)
+            self.editingToolbar.frame = CGRect(x: 12.0, y: component.statusBarHeight + 48.0, width: toolbarWidth, height: 48.0)
+            let hintSize = self.editingHint.sizeThatFits(CGSize(width: toolbarWidth, height: 120.0))
+            self.editingHint.frame = CGRect(x: 12.0, y: self.editingToolbar.frame.maxY + 4.0, width: toolbarWidth, height: min(120.0, hintSize.height + 12.0))
+            self.editingToolbar.isHidden = !self.isEditingLayout
+            self.editingHint.isHidden = !self.isEditingLayout
                     
             let iconSize = CGSize(width: 32.0, height: 32.0)
             
@@ -349,12 +518,22 @@ public final class PeerInfoGiftsCoverComponent: Component {
                 let effectivePosition = interpolatePosition(from: iconPosition, to: centerPosition, t: itemScaleFraction)
                 let effectiveAngle = toAngle * itemScaleFraction
                 
-                let absolutePosition = getAbsolutePosition(position: effectivePosition, centerPoint: component.avatarCenter)
+                var absolutePosition = getAbsolutePosition(position: effectivePosition, centerPoint: component.avatarCenter)
+                var pearlScale = iconPosition.scale
+                if component.allowsLocalEditing, let slug = id.base as? String, let saved = self.localLayout[slug],
+                   let x = saved["x"], let y = saved["y"], let scale = saved["scale"] {
+                    let custom = self.clampedCenter(CGPoint(x: CGFloat(x) * availableSize.width, y: CGFloat(y) * availableSize.height), component: component)
+                    absolutePosition = CGPoint(x: custom.x * (1.0 - itemScaleFraction) + component.avatarCenter.x * itemScaleFraction, y: custom.y * (1.0 - itemScaleFraction) + component.avatarCenter.y * itemScaleFraction)
+                    pearlScale = CGFloat(scale)
+                }
+                iconLayer.borderWidth = self.isEditingLayout && self.selectedGift == id ? 1.5 : 0.0
+                iconLayer.borderColor = UIColor(rgb: 0x94BFE5).cgColor
+                iconLayer.cornerRadius = 12.0
                                 
                 iconTransition.setBounds(layer: iconLayer, bounds: CGRect(origin: .zero, size: iconSize))
                 iconTransition.setPosition(layer: iconLayer, position: absolutePosition)
                 iconLayer.updateRotation(effectiveAngle, transition: iconTransition)
-                iconTransition.setScale(layer: iconLayer, scale: iconPosition.scale * (1.0 - itemScaleFraction))
+                iconTransition.setScale(layer: iconLayer, scale: pearlScale * (1.0 - itemScaleFraction))
                 
                 if !self.scheduledAnimateIn {
                     iconTransition.setAlpha(layer: iconLayer, alpha: 1.0 - itemScaleFraction)
@@ -376,6 +555,51 @@ public final class PeerInfoGiftsCoverComponent: Component {
             for id in removeIds {
                 self.iconLayers.removeValue(forKey: id)
             }
+            self.bringSubviewToFront(self.editingToolbar)
+            self.bringSubviewToFront(self.editingHint)
+            var accessibleGifts: [Any] = []
+            for (index, entry) in self.iconLayers.sorted(by: { String(describing: $0.key) < String(describing: $1.key) }).enumerated() {
+                let element = UIAccessibilityElement(accessibilityContainer: self)
+                element.accessibilityLabel = russian ? "Подарок \(index + 1)" : "Gift \(index + 1)"
+                element.accessibilityTraits = .button
+                element.accessibilityFrameInContainerSpace = entry.value.frame
+                let id = entry.key
+                var actions = [UIAccessibilityCustomAction(name: russian ? "Открыть подарок" : "Open gift", actionHandler: { [weak self] _ in
+                    guard let self, let layer = self.iconLayers[id], let component = self.component else { return false }
+                    component.action(layer.gift)
+                    return true
+                })]
+                if component.allowsLocalEditing && component.avatarTransitionFraction < 0.05 {
+                    element.accessibilityHint = russian ? "Локальное оформление: доступны перемещение и размер" : "Local layout: move and resize actions available"
+                    let adjustments: [(String, CGFloat, CGFloat, Double)] = [
+                        (russian ? "Левее" : "Move left", -12.0, 0.0, 1.0),
+                        (russian ? "Правее" : "Move right", 12.0, 0.0, 1.0),
+                        (russian ? "Выше" : "Move up", 0.0, -12.0, 1.0),
+                        (russian ? "Ниже" : "Move down", 0.0, 12.0, 1.0),
+                        (russian ? "Увеличить" : "Enlarge", 0.0, 0.0, 1.15),
+                        (russian ? "Уменьшить" : "Shrink", 0.0, 0.0, 1.0 / 1.15)
+                    ]
+                    for adjustment in adjustments {
+                        actions.append(UIAccessibilityCustomAction(name: adjustment.0, actionHandler: { [weak self] _ in
+                            guard let self, let layer = self.iconLayers[id], let slug = id.base as? String, let component = self.component else { return false }
+                            let center = self.clampedCenter(CGPoint(x: layer.position.x + adjustment.1, y: layer.position.y + adjustment.2), component: component)
+                            let size = self.currentSize ?? self.bounds.size
+                            let scale = self.localLayout[slug]?["scale"] ?? Double(layer.transform.m11)
+                            self.localLayout[slug] = ["x": Double(center.x / max(1.0, size.width)), "y": Double(center.y / max(1.0, size.height)), "scale": max(0.6, min(1.8, scale * adjustment.3))]
+                            self.selectedGift = id
+                            self.setEditingLayout(true)
+                            return true
+                        }))
+                    }
+                }
+                element.accessibilityCustomActions = actions
+                accessibleGifts.append(element)
+            }
+            if self.isEditingLayout {
+                accessibleGifts.append(contentsOf: self.layoutControls)
+                accessibleGifts.append(self.editingHint)
+            }
+            self.accessibilityElements = accessibleGifts
             return availableSize
         }
     }
