@@ -81,6 +81,54 @@ jobs:
           echo 'build --//Telegram:disableProvisioningProfiles' >> .bazelrc
           python3 build-system/Make/Make.py build --configurationPath=build-system/pearl-compile-only.json --xcodeManagedCodesigning --buildNumber=1 --configuration=debug_sim_arm64 2>&1 | tee pearl-build.log
 
+
+      - name: Package encrypted Appetize simulator build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p pearl-appetize/stage
+          unzip -q bazel-bin/Telegram/Telegram.ipa -d pearl-appetize/stage
+          test -d pearl-appetize/stage/Payload/Telegram.app
+          (cd pearl-appetize/stage/Payload && /usr/bin/ditto -c -k --sequesterRsrc --keepParent Telegram.app ../../PearlFlow.app.zip)
+          cat > pearl-appetize/recipient.pem <<'PEARL_CERT'
+          -----BEGIN CERTIFICATE-----
+          MIIEIzCCAougAwIBAgIUFo82SF7MCQdaD+tfMX6rZPKiqPIwDQYJKoZIhvcNAQEL
+          BQAwITEfMB0GA1UEAwwWUGVhcmxGbG93QnVpbGRUcmFuc2ZlcjAeFw0yNjEwMTUx
+          MzIzMTdaFw0yNjEwMjIxMzIzMTdaMCExHzAdBgNVBAMMFlBlYXJsRmxvd0J1aWxk
+          VHJhbnNmZXIwggGiMA0GCSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQCeleghR+kc
+          n35ExYnw5fk+KPRvykm9E0XeSwYlIj4vaszN/ORlzo5d60PnzPMwN9k70xohGBB2
+          nr6IksRnwF2xLLv37LfKoqPlE/TEKV1hKjKGCvBSBPh9k+7QFgb9ucg52Y//8hZC
+          WzlW8MLAyhSPClvgh53qeuHDA4KsvdzLYaOS3wS+ooUbh83gBQXg1Gk4sFyAfLaz
+          QSU/Lxe1LmmmxFzxk3Mx0OR2YS92+m+atqkr2HCrSI8IWWucjjkyKTOTQkVc393I
+          R6EU3iEbN0zQ8qTYdJhi0twEbBwcYmUiJYwHTevsrrISnJjO6ApJtuHdi3uRvqoW
+          bUxHJE1+MX7ZDmUmNODbBNeWoo56NuQRhbCiibAYjOGKe6uEj2cZIE/DlnapGkl+
+          sGaKiZp4iuneBju5Lyfu90ThYoS6kdZOa2j1XKXFZW81v+a4vZyo+CZaYzFfpUIW
+          nrCwv9FTgA4iguquE7z3rEOWXLcPdKDlvzu26AsibRzA0rJJFQ+yyTcCAwEAAaNT
+          MFEwHQYDVR0OBBYEFItr9+1z8JP4pjLNYEMBELr8YfaRMB8GA1UdIwQYMBaAFItr
+          9+1z8JP4pjLNYEMBELr8YfaRMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEL
+          BQADggGBAJoC6t8r4n2ZK0hje+kqwE+SOnGIrxBDII1xi1GrBnLECiIYDaS5Z8DW
+          nY7bafY38kd00fyCeyFL7EbhSwVYz0F1Mxq849um/NWDDWlNDtc7MMRHKPtcy57y
+          rqWGugSeEEWJ4/eQaGWHQepbyaTXPrCBgb1zxXIzM0ToHRgqzqT1dT3y9rVTjVXy
+          YYq2bcK49K/7Cn1Q7FqQf6pibvmQwTLM6RzsrO1SQCtUYlmkl6t9FEKntXf3kZpI
+          6AnaqLQKeLxslaEZGIBqsJQIUyY32cFyLm81slF4F8YnTl+QLPKMei73Be4Zvhnl
+          g/Fub30ZQi9bZHPQhB4SJ+VdkhfX6mkirdbrf4fYUE3btTfJCDTvWIVEKB7KQ4f4
+          T9KImBK9UE1QH/dbvWnORc8uVLvPc3h4NY1BulE6kdXErEhQA+B6RJZgHMPDjCJ1
+          byhOxJS9R9OMv0htlcnLG2UjNr2EgW2ZBVOglVFqZjlHz4QZ58zpTRAvIcdypptH
+          W6roBgLInA==
+          -----END CERTIFICATE-----
+          PEARL_CERT
+          openssl cms -encrypt -binary -aes-256-cbc -in pearl-appetize/PearlFlow.app.zip -outform DER -out pearl-appetize/PearlFlow.app.zip.cms pearl-appetize/recipient.pem
+          rm -f pearl-appetize/PearlFlow.app.zip
+          echo 'Encrypted simulator archive prepared for private transfer. Decryption key is not stored in this repository or workflow.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve encrypted Appetize simulator build
+        uses: actions/upload-artifact@v4
+        with:
+          name: pearl-appetize-encrypted
+          path: pearl-appetize/PearlFlow.app.zip.cms
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Preserve simulator application
         if: steps.configuration.outputs.has_credentials != 'true'
         uses: actions/upload-artifact@v4
