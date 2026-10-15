@@ -2549,6 +2549,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                     topRightButtonsSize: CGSize(width: 76.0 + (self.isMyProfile ? 38.0 : 0.0), height: 46.0),
                     titleWidth: max(140.0, titleFrame.width) + 42.0,
                     bottomHeight: !buttonKeys.isEmpty ? 81.0 : 30.0,
+                    allowsLocalEditing: peer.id == self.context.account.peerId && ["Pearl Mist", "Arctic Pearl", "Midnight Pearl"].contains(presentationData.theme.name.string) && !state.isEditing && !isSearching,
                     action: { [weak self] gift in
                         guard let self, case let .unique(gift) = gift.gift else {
                             return
