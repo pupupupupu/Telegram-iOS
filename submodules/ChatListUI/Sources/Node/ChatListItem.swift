@@ -1383,6 +1383,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
     public private(set) var item: ChatListItem?
     
     private let backgroundNode: ASDisplayNode
+    private var pearlSurfaceLayer: CAGradientLayer?
     private let highlightedBackgroundNode: ASDisplayNode
     
     let contextContainer: ContextControllerSourceNode
@@ -5450,6 +5451,45 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         strongSelf.backgroundNode.backgroundColor = backgroundColor
                     }
                     
+                    // Keep native content, selection and reveal actions. Only decorate ordinary
+                    // peer rows; search/custom rows and archive containers retain their layout.
+                    let pearlName = item.presentationData.theme.name.string
+                    var usesPearlSurface = ["Pearl Mist", "Arctic Pearl", "Midnight Pearl"].contains(pearlName)
+                    if case let .peer(peerData) = item.content {
+                        usesPearlSurface = usesPearlSurface && peerData.customMessageListData == nil
+                    } else {
+                        usesPearlSurface = false
+                    }
+                    if usesPearlSurface {
+                        let surfaceLayer: CAGradientLayer
+                        if let current = strongSelf.pearlSurfaceLayer {
+                            surfaceLayer = current
+                        } else {
+                            surfaceLayer = CAGradientLayer()
+                            strongSelf.pearlSurfaceLayer = surfaceLayer
+                            strongSelf.backgroundNode.layer.addSublayer(surfaceLayer)
+                        }
+                        let light = pearlName == "Arctic Pearl"
+                        let reducedTransparency = UIAccessibility.isReduceTransparencyEnabled
+                        CATransaction.begin()
+                        CATransaction.setDisableActions(true)
+                        surfaceLayer.frame = CGRect(x: params.leftInset + 8.0, y: 3.0, width: max(0.0, layout.contentSize.width - params.leftInset - params.rightInset - 16.0), height: max(0.0, itemHeight - 6.0))
+                        surfaceLayer.cornerRadius = 22.0
+                        surfaceLayer.startPoint = CGPoint(x: 0.0, y: 0.0)
+                        surfaceLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
+                        let upper = UIColor(rgb: light ? 0xFFFFFF : (pearlName == "Pearl Mist" ? 0x626B79 : 0x394352))
+                        let lower = UIColor(rgb: light ? 0xE1EAF1 : (pearlName == "Pearl Mist" ? 0x3B4351 : 0x242D3B))
+                        surfaceLayer.colors = [upper.withAlphaComponent(reducedTransparency ? 1.0 : 0.92).cgColor, lower.withAlphaComponent(reducedTransparency ? 1.0 : 0.82).cgColor]
+                        surfaceLayer.borderWidth = 1.0 / UIScreen.main.scale
+                        surfaceLayer.borderColor = UIColor.white.withAlphaComponent(light ? 0.85 : 0.18).cgColor
+                        surfaceLayer.isHidden = item.selected || strongSelf.isRevealOptionsActive
+                        CATransaction.commit()
+                        strongSelf.separatorNode.isHidden = true
+                    } else if let surfaceLayer = strongSelf.pearlSurfaceLayer {
+                        surfaceLayer.removeFromSuperlayer()
+                        strongSelf.pearlSurfaceLayer = nil
+                    }
+
                     if let inlineNavigationLocation = item.interaction.inlineNavigationLocation {
                         transition.updateAlpha(node: strongSelf.backgroundNode, alpha: 1.0 - inlineNavigationLocation.progress)
                     } else {
@@ -5613,6 +5653,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
 
     override public func revealOptionsActiveStateUpdated(isActive: Bool, transition: ContainedViewLayoutTransition) {
         super.revealOptionsActiveStateUpdated(isActive: isActive, transition: transition)
+        self.pearlSurfaceLayer?.isHidden = isActive || self.item?.selected == true
 
         self.updateIsHighlighted(transition: transition)
     }
