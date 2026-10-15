@@ -1,4 +1,5 @@
 name: Pearl Flow native verification
+
 on:
   push:
     branches: [pearl-flow-macos-check]
@@ -12,22 +13,27 @@ on:
       - 'submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift'
       - 'submodules/TelegramUI/Components/AudioWaveformComponent/Sources/AudioWaveformComponent.swift'
       - 'submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift'
+
 permissions:
   contents: read
+
 concurrency:
   group: pearl-native-verification
   cancel-in-progress: false
+
 jobs:
   simulator-build:
     runs-on: macos-26
     timeout-minutes: 90
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
           persist-credentials: false
+
       - name: Parse modified Swift source
         run: |
           xcrun swiftc -frontend -parse submodules/ChatListUI/Sources/Node/ChatListItem.swift
@@ -38,36 +44,52 @@ jobs:
           xcrun swiftc -frontend -parse submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
           xcrun swiftc -frontend -parse submodules/TelegramUI/Components/AudioWaveformComponent/Sources/AudioWaveformComponent.swift
           xcrun swiftc -frontend -parse submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift
+
       - name: Fetch upstream submodules
         run: |
           git submodule init
           git config submodule.submodules/rlottie/rlottie.url https://github.com/TelegramMessenger/rlottie.git
           git config submodule.submodules/TgVoipWebrtc/tgcalls.url https://github.com/TelegramMessenger/tgcalls.git
           git submodule update --recursive --depth 1
-      - name: Create compile-only configuration
+
+      - name: Create simulator configuration
+        id: configuration
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         run: |
           python3 - <<'PY'
-          import json
+          import json, os, re
+          api_id = os.environ.get('TELEGRAM_API_ID', '').strip()
+          api_hash = os.environ.get('TELEGRAM_API_HASH', '').strip()
+          authenticated = bool(api_id or api_hash)
+          if authenticated and not (api_id.isdigit() and int(api_id) > 0 and re.fullmatch(r'[0-9a-fA-F]{32}', api_hash)):
+              raise SystemExit('Both TELEGRAM_API_ID and TELEGRAM_API_HASH must contain valid application credentials.')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'has_credentials={str(authenticated).lower()}\n')
           config = json.load(open('build-system/template_minimal_development_configuration.json'))
-          config.update(bundle_id='org.pearlflow.compilecheck', api_id='0', api_hash='00000000000000000000000000000000', team_id='PEARLCHECK0', app_specific_url_scheme='pearlflow')
+          config.update(bundle_id='org.pearlflow.compilecheck', api_id=api_id if authenticated else '0', api_hash=api_hash if authenticated else '00000000000000000000000000000000', team_id='PEARLCHECK0', app_specific_url_scheme='pearlflow')
           with open('build-system/pearl-compile-only.json', 'w') as output:
               json.dump(config, output)
           PY
-          echo 'Compile verification only. API credentials are intentionally invalid; this is not a usable Telegram client.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Simulator verification. Application credentials are used when both repository secrets are present; account login is not tested.' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build full Telegram simulator target
         shell: bash
         run: |
           set -euo pipefail
-          # Simulator-only: use Telegram's existing provisioning switch.
           echo 'build --//Telegram:disableProvisioningProfiles' >> .bazelrc
           python3 build-system/Make/Make.py build --configurationPath=build-system/pearl-compile-only.json --xcodeManagedCodesigning --buildNumber=1 --configuration=debug_sim_arm64 2>&1 | tee pearl-build.log
+
       - name: Preserve simulator application
+        if: steps.configuration.outputs.has_credentials != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: pearl-simulator-compile-only
           path: bazel-bin/Telegram/Telegram.ipa
           if-no-files-found: error
           retention-days: 3
+
       - name: Launch in a clean iOS simulator
         timeout-minutes: 8
         shell: bash
@@ -98,7 +120,8 @@ jobs:
           sleep 15
           kill -0 "$PID"
           xcrun simctl io "$DEVICE" screenshot pearl-smoke/launch.png
-          echo 'Simulator startup survived 15 seconds. This does not verify login, themes, messages or calls; API credentials remain intentionally invalid.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Simulator startup survived 15 seconds. This does not verify login, themes, messages or calls; application credentials do not establish an account session.' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Preserve simulator startup evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -110,8 +133,9 @@ jobs:
             pearl-smoke/runtimes.json
           if-no-files-found: ignore
           retention-days: 3
+
       - name: Preserve build log
-        if: always()
+        if: always() && steps.configuration.outputs.has_credentials != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: pearl-build-log
