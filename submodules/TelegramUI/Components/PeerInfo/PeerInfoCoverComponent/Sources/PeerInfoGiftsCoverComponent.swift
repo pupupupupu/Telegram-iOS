@@ -132,6 +132,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
         private let editingToolbar = UIStackView()
         private let editingHint = UILabel()
         private var layoutControls: [UIButton] = []
+        private var originalSiblingIndex: Int?
         
         override public init(frame: CGRect) {
             super.init(frame: frame)
@@ -156,6 +157,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
             }
             
             let tap = UITapGestureRecognizer(target: self, action: #selector(self.tapped(_:)))
+            tap.cancelsTouchesInView = false
             let hold = UILongPressGestureRecognizer(target: self, action: #selector(self.moveGift(_:)))
             hold.minimumPressDuration = 0.45
             hold.delegate = self
@@ -215,11 +217,25 @@ public final class PeerInfoGiftsCoverComponent: Component {
             self.localLayout = valid
         }
 
+        private func updateEditingHierarchy() {
+            guard let parent = self.superview else { return }
+            if self.isEditingLayout {
+                if self.originalSiblingIndex == nil {
+                    self.originalSiblingIndex = parent.subviews.firstIndex(where: { $0 === self })
+                    parent.bringSubviewToFront(self)
+                }
+            } else if let index = self.originalSiblingIndex {
+                self.originalSiblingIndex = nil
+                parent.insertSubview(self, at: min(index, max(0, parent.subviews.count - 1)))
+            }
+        }
+
         private func setEditingLayout(_ editing: Bool) {
             self.isEditingLayout = editing
             self.editingToolbar.isHidden = !editing
             self.editingHint.isHidden = !editing
             if !editing { self.selectedGift = nil }
+            self.updateEditingHierarchy()
             if editing { UIAccessibility.post(notification: .announcement, argument: self.editingHint.text) }
             self.state?.updated(transition: .immediate)
         }
@@ -555,6 +571,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
             for id in removeIds {
                 self.iconLayers.removeValue(forKey: id)
             }
+            self.updateEditingHierarchy()
             self.bringSubviewToFront(self.editingToolbar)
             self.bringSubviewToFront(self.editingHint)
             var accessibleGifts: [Any] = []
