@@ -604,7 +604,14 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
                     let resource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
                     context.sharedContext.accountManager.resources.storeResourceData(id: EngineMediaResource.Id(resource.id), data: data, synchronous: true)
                     let reference = PresentationThemeReference.local(PresentationLocalTheme(title: preset.rawValue, resource: resource, resolvedWallpaper: theme.chat.defaultWallpaper))
-                    pushControllerImpl?(ThemePreviewController(context: context, previewTheme: theme, source: .settings(reference, theme.chat.defaultWallpaper, false)))
+                    let previewController = ThemePreviewController(context: context, previewTheme: theme, source: .settings(reference, theme.chat.defaultWallpaper, false))
+                    // Pearl presets are local themes. The default preview apply path
+                    // uploads local themes before selecting them; use Appearance's
+                    // existing selector so applying does not wait for theme creation.
+                    previewController.customApply = {
+                        selectThemeImpl?(reference)
+                    }
+                    pushControllerImpl?(previewController)
                 }))
             })
         }
