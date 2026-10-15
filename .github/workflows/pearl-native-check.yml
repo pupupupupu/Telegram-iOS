@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/pearl-native-check.yml'
       - 'submodules/ChatListUI/Sources/Node/ChatListItem.swift'
+      - 'submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderActionButtonNode.swift'
+      - 'submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderButtonNode.swift'
       - 'submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift'
       - 'submodules/TelegramUI/Components/AudioWaveformComponent/Sources/AudioWaveformComponent.swift'
       - 'submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift'
@@ -27,6 +29,8 @@ jobs:
       - name: Parse modified Swift source
         run: |
           xcrun swiftc -frontend -parse submodules/ChatListUI/Sources/Node/ChatListItem.swift
+          xcrun swiftc -frontend -parse submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderActionButtonNode.swift
+          xcrun swiftc -frontend -parse submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoHeaderButtonNode.swift
           xcrun swiftc -frontend -parse submodules/SettingsUI/Sources/Themes/ThemeSettingsController.swift
           xcrun swiftc -frontend -parse submodules/TelegramUI/Components/AudioWaveformComponent/Sources/AudioWaveformComponent.swift
           xcrun swiftc -frontend -parse submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift
