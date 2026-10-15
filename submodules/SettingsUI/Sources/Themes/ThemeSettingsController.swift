@@ -593,7 +593,9 @@ public func themeSettingsController(context: AccountContext, focusOnItemTag: The
         let items: [ActionSheetItem] = PearlFlowPreset.allCases.map { preset in
             return ActionSheetButtonItem(title: preset.rawValue, color: .accent, action: { [weak sheet] in
                 sheet?.dismissAnimated()
-                pushControllerImpl?(PearlFlowEditorController(context: context, preset: preset, preview: { theme in
+                pushControllerImpl?(PearlFlowEditorController(context: context, preset: preset, openWallpaper: {
+                    pushControllerImpl?(ThemeGridController(context: context))
+                }, preview: { theme in
                     guard let encoded = encodePresentationTheme(theme), let data = encoded.data(using: .utf8) else {
                         let message = presentationData.strings.baseLanguageCode.hasPrefix("ru") ? "Не удалось сохранить тему." : "Could not save the theme."
                         presentControllerImpl?(textAlertController(context: context, title: nil, text: message, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]), nil)
@@ -1648,6 +1650,7 @@ private enum PearlFlowPreset: String, CaseIterable {
 private final class PearlFlowEditorController: ViewController, UIColorPickerViewControllerDelegate {
     private let preset: PearlFlowPreset
     private let preview: (PresentationTheme) -> Void
+    private let openWallpaper: () -> Void
     private let russian: Bool
     private var colors: [UInt32]
     private let initialColors: [UInt32]
@@ -1660,9 +1663,10 @@ private final class PearlFlowEditorController: ViewController, UIColorPickerView
     private let opacityLabel = UILabel()
     private var colorButtons: [UIButton] = []
 
-    init(context: AccountContext, preset: PearlFlowPreset, preview: @escaping (PresentationTheme) -> Void) {
+    init(context: AccountContext, preset: PearlFlowPreset, openWallpaper: @escaping () -> Void, preview: @escaping (PresentationTheme) -> Void) {
         self.preset = preset
         self.preview = preview
+        self.openWallpaper = openWallpaper
         let data = context.sharedContext.currentPresentationData.with { $0 }
         self.russian = data.strings.baseLanguageCode.hasPrefix("ru")
         let defaultTheme = makePearlFlowTheme(preset)
@@ -1744,6 +1748,7 @@ private final class PearlFlowEditorController: ViewController, UIColorPickerView
         self.stack.addArrangedSubview(self.opacitySlider)
         self.addLabel(self.russian ? "Меняется прозрачность навигации и нижней панели. Режим уменьшения прозрачности iOS имеет приоритет. Здесь показан образец материала; полный вид темы откроется в предпросмотре." : "Changes navigation and tab bar transparency. iOS Reduce Transparency takes priority. This is a material sample; open the full theme preview before applying.", style: .footnote)
         self.addButton(self.russian ? "Предпросмотр темы" : "Preview theme", action: #selector(self.previewPressed), prominent: true)
+        self.addButton(self.russian ? "Выбрать фон или фотографию" : "Choose wallpaper or photo", action: #selector(self.wallpaperPressed), prominent: false)
         self.addButton(self.russian ? "Сбросить изменения" : "Reset changes", action: #selector(self.resetPressed), prominent: false)
         self.addLabel(self.russian ? "Фотографию для фона можно выбрать в стандартном разделе «Фон для чатов» после применения темы. Выход из редактора не меняет текущую тему." : "Choose a background photo in Telegram's Chat Wallpaper settings after applying. Leaving this editor does not change your current theme.", style: .footnote)
         self.updateDraft()
@@ -1809,6 +1814,10 @@ private final class PearlFlowEditorController: ViewController, UIColorPickerView
         self.colors = self.initialColors
         self.opacitySlider.value = 12.0
         self.updateDraft()
+    }
+
+    @objc private func wallpaperPressed() {
+        self.openWallpaper()
     }
 
     @objc private func previewPressed() {
@@ -1880,16 +1889,56 @@ private func makePearlFlowTheme(_ preset: PearlFlowPreset, panelOpacity: CGFloat
     }
     let wallpaper = TelegramWallpaper.gradient(TelegramWallpaper.Gradient(id: nil, colors: wallpaperColorsOverride ?? wallpaperColors, settings: WallpaperSettings()))
     let theme = customizePresentationTheme(base, editing: true, title: preset.rawValue, accentColor: accent, outgoingAccentColor: nil, backgroundColors: [], bubbleColors: dark ? [0x354F6C, 0x4B6989] : [0xC5DCEE, 0xDEEAF4], animateBubbleColors: false, wallpaper: wallpaper)
+    // Pearl Mist combines a graphite canvas with legible pearl message surfaces.
+    // Use the complete day message palette for light bubbles so links, files,
+    // polls, reactions and voice controls keep appropriate foreground colors.
+    let lightSurfaces = preset != .midnight
+    let day = makeDefaultPresentationTheme(reference: .day, serviceBackgroundColor: nil)
+    let incomingBase = lightSurfaces ? day.chat.message.incoming : theme.chat.message.incoming
+    let incomingFill = lightSurfaces ? [UIColor(rgb: 0xF8FAFC), UIColor(rgb: 0xDFE7EF)] : [UIColor(rgb: 0x364253), UIColor(rgb: 0x293342)]
+    let incomingStroke = UIColor(rgb: lightSurfaces ? 0xFFFFFF : 0x526075)
+    let incomingBubble = incomingBase.bubble.withUpdated(
+        withWallpaper: incomingBase.bubble.withWallpaper.withUpdated(fill: incomingFill, stroke: incomingStroke),
+        withoutWallpaper: incomingBase.bubble.withoutWallpaper.withUpdated(fill: incomingFill, stroke: incomingStroke)
+    )
+    let incoming = incomingBase.withUpdated(bubble: incomingBubble)
+    let panelBase = lightSurfaces ? day.chat.inputPanel : theme.chat.inputPanel
+    let panelSurface = UIColor(rgb: lightSurfaces ? 0xECF1F6 : 0x242D3B)
+    let panelText = UIColor(rgb: lightSurfaces ? 0x202B39 : 0xF4F5F8)
+    let panelSecondary = UIColor(rgb: lightSurfaces ? 0x526477 : 0xBCC6D5)
+    let panelAccent = UIColor(rgb: lightSurfaces ? 0x246D9C : 0x94BFE5)
+    let pearlChat = theme.chat.withUpdated(
+        message: theme.chat.message.withUpdated(incoming: incoming),
+        inputPanel: panelBase.withUpdated(
+            panelBackgroundColor: panelSurface,
+            panelBackgroundColorNoWallpaper: panelSurface,
+            panelSeparatorColor: incomingStroke,
+            panelControlAccentColor: panelAccent,
+            panelControlColor: panelSecondary,
+            inputBackgroundColor: UIColor(rgb: lightSurfaces ? 0xFFFFFF : 0x303C4D),
+            inputStrokeColor: incomingStroke,
+            inputPlaceholderColor: panelSecondary,
+            inputTextColor: panelText,
+            inputControlColor: panelAccent,
+            actionControlFillColor: panelAccent,
+            actionControlForegroundColor: UIColor(rgb: lightSurfaces ? 0xFFFFFF : 0x182B40),
+            primaryTextColor: panelText,
+            secondaryTextColor: panelSecondary
+        )
+    )
     return PresentationTheme(
         name: .custom(preset.rawValue), index: theme.index, referenceTheme: theme.referenceTheme,
         overallDarkAppearance: dark, intro: theme.intro, passcode: theme.passcode,
         rootController: theme.rootController.withUpdated(
             tabBar: theme.rootController.tabBar.withUpdated(backgroundColor: surface.withAlphaComponent(panelOpacity), separatorColor: separator, selectedIconColor: accent, selectedTextColor: accent),
-            navigationBar: theme.rootController.navigationBar.withUpdated(primaryTextColor: text, secondaryTextColor: secondary, blurredBackgroundColor: surface.withAlphaComponent(panelOpacity), opaqueBackgroundColor: surface, separatorColor: separator)
+            navigationBar: theme.rootController.navigationBar.withUpdated(primaryTextColor: text, secondaryTextColor: secondary, blurredBackgroundColor: surface.withAlphaComponent(panelOpacity), opaqueBackgroundColor: surface, separatorColor: separator),
+            navigationSearchBar: theme.rootController.navigationSearchBar.withUpdated(backgroundColor: background, accentColor: accent, inputFillColor: surface, inputTextColor: text, inputPlaceholderTextColor: secondary, inputIconColor: secondary, inputClearButtonColor: secondary, separatorColor: separator)
         ),
         list: theme.list.withUpdated(blocksBackgroundColor: background, modalBlocksBackgroundColor: background, plainBackgroundColor: background, modalPlainBackgroundColor: background, itemPrimaryTextColor: text, itemSecondaryTextColor: secondary, itemAccentColor: accent, itemBlocksBackgroundColor: surface, itemModalBlocksBackgroundColor: surface, itemBlocksSeparatorColor: separator, itemPlainSeparatorColor: separator),
         chatList: theme.chatList.withUpdated(backgroundColor: background, itemSeparatorColor: separator, itemBackgroundColor: background, pinnedItemBackgroundColor: surface, titleColor: text, dateTextColor: secondary, authorNameColor: text, messageTextColor: secondary, checkmarkColor: accent, unreadBadgeActiveBackgroundColor: accent, unreadBadgeActiveTextColor: background, storyUnseenColors: PresentationThemeGradientColors(topColor: accent, bottomColor: UIColor(rgb: dark ? 0xCDD9E9 : 0x739AC5))),
-        chat: theme.chat, actionSheet: theme.actionSheet, contextMenu: theme.contextMenu,
-        inAppNotification: theme.inAppNotification, chart: theme.chart, preview: theme.preview
+        chat: pearlChat,
+        actionSheet: theme.actionSheet.withUpdated(opaqueItemBackgroundColor: surface, itemBackgroundColor: surface, opaqueItemSeparatorColor: separator, standardActionTextColor: accent, primaryTextColor: text, secondaryTextColor: secondary, controlAccentColor: accent, inputBackgroundColor: background, inputPlaceholderColor: secondary, inputTextColor: text),
+        contextMenu: theme.contextMenu.withUpdated(backgroundColor: surface, itemSeparatorColor: separator, sectionSeparatorColor: background, itemBackgroundColor: surface, primaryColor: text, secondaryColor: secondary),
+        inAppNotification: theme.inAppNotification.withUpdated(fillColor: surface, primaryTextColor: text), chart: theme.chart, preview: theme.preview
     )
 }
