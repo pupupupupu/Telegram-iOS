@@ -93,7 +93,8 @@ final class PeerInfoHeaderActionButtonNode: HighlightableButtonNode {
             gradient.startPoint = CGPoint(x: 0.0, y: 0.0)
             gradient.endPoint = CGPoint(x: 1.0, y: 1.0)
             let accent = presentationData.theme.list.itemAccentColor
-            gradient.colors = [accent.mixedWith(.white, alpha: 0.18).cgColor, accent.cgColor]
+            let reflection = presentationData.theme.overallDarkAppearance ? UIColor.white : UIColor.black
+            gradient.colors = [accent.mixedWith(reflection, alpha: 0.12).cgColor, accent.cgColor]
             gradient.borderWidth = 1.0 / UIScreen.main.scale
             gradient.borderColor = UIColor.white.withAlphaComponent(0.25).cgColor
             self.backgroundNode.cornerRadius = gradient.cornerRadius
