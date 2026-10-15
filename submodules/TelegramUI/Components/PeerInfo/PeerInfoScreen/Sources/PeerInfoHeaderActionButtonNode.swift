@@ -11,6 +11,7 @@ final class PeerInfoHeaderActionButtonNode: HighlightableButtonNode {
     let referenceNode: ContextReferenceContentNode
     let containerNode: ContextControllerSourceNode
     private let backgroundNode: ASDisplayNode
+    private var pearlGradient: CAGradientLayer?
     private let textNode: ImmediateTextNode
     
     private var theme: PresentationTheme?
@@ -75,6 +76,34 @@ final class PeerInfoHeaderActionButtonNode: HighlightableButtonNode {
             transition.updateFrame(node: self.backgroundNode, frame: CGRect(origin: CGPoint(), size: size))
         }
         
+        let pearl = ["Pearl Mist", "Arctic Pearl", "Midnight Pearl"].contains(presentationData.theme.name.string)
+        if pearl {
+            let gradient: CAGradientLayer
+            if let current = self.pearlGradient {
+                gradient = current
+            } else {
+                gradient = CAGradientLayer()
+                self.pearlGradient = gradient
+                self.backgroundNode.layer.addSublayer(gradient)
+            }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            gradient.frame = CGRect(origin: CGPoint(), size: size)
+            gradient.cornerRadius = min(22.0, size.height * 0.5)
+            gradient.startPoint = CGPoint(x: 0.0, y: 0.0)
+            gradient.endPoint = CGPoint(x: 1.0, y: 1.0)
+            let accent = presentationData.theme.list.itemAccentColor
+            gradient.colors = [accent.mixedWith(.white, alpha: 0.18).cgColor, accent.cgColor]
+            gradient.borderWidth = 1.0 / UIScreen.main.scale
+            gradient.borderColor = UIColor.white.withAlphaComponent(0.25).cgColor
+            self.backgroundNode.cornerRadius = gradient.cornerRadius
+            CATransaction.commit()
+        } else {
+            self.pearlGradient?.removeFromSuperlayer()
+            self.pearlGradient = nil
+            self.backgroundNode.cornerRadius = 11.0
+        }
+
         self.textNode.attributedText = NSAttributedString(string: text, font: Font.semibold(16.0), textColor: presentationData.theme.list.itemCheckColors.foregroundColor)
         self.accessibilityLabel = text
         let titleSize = self.textNode.updateLayout(CGSize(width: 120.0, height: .greatestFiniteMagnitude))
