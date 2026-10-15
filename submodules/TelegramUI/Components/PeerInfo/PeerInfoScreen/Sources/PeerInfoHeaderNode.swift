@@ -2854,7 +2854,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         }
         
         if let giftsCoverView = self.giftsCover.view, giftsCoverView.alpha > 0.0, giftsCoverView.point(inside: self.view.convert(point, to: giftsCoverView), with: event) {
-            return giftsCoverView
+            return giftsCoverView.hitTest(self.view.convert(point, to: giftsCoverView), with: event)
         }
         
         if let musicView = self.music?.view, let result = musicView.hitTest(self.view.convert(point, to: musicView), with: event) {
