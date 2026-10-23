@@ -433,7 +433,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
                 layer.starsLayer.setEnabled(!pearl && enabled)
                 // Use the real gift animation renderer, respecting Telegram's energy settings.
                 layer.animationLayer.isVisibleForAnimations = pearl && enabled
-                    && (self.component?.context.energyUsageSettings.loopEmoji ?? false)
+                    && (self.component?.context.sharedContext.energyUsageSettings.loopEmoji ?? false)
                 if enabled {
                     layer.startAnimations(index: index, pearl: pearl)
                 } else {
