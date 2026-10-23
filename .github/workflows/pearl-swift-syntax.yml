@@ -35,3 +35,5 @@ jobs:
           xcrun swiftc -frontend -parse submodules/TelegramUI/Components/AudioWaveformComponent/Sources/AudioWaveformComponent.swift
           xcrun swiftc -frontend -parse submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift
           echo 'Swift syntax passed. This is not type checking, an app build or a runtime test.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Check waveform geometry regression cases
+        run: python3 tools/pearl/check-waveform.py

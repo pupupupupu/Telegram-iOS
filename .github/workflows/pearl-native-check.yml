@@ -45,6 +45,9 @@ jobs:
           xcrun swiftc -frontend -parse submodules/TelegramUI/Components/AudioWaveformComponent/Sources/AudioWaveformComponent.swift
           xcrun swiftc -frontend -parse submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift
 
+      - name: Check waveform geometry regression cases
+        run: python3 tools/pearl/check-waveform.py
+
       - name: Fetch upstream submodules
         run: |
           git submodule init
