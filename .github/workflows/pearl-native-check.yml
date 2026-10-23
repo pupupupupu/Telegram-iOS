@@ -79,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           echo 'build --//Telegram:disableProvisioningProfiles' >> .bazelrc
-          python3 build-system/Make/Make.py build --configurationPath=build-system/pearl-compile-only.json --xcodeManagedCodesigning --buildNumber=1 --configuration=debug_sim_arm64 2>&1 | tee pearl-build.log
+          python3 build-system/Make/Make.py build --configurationPath=build-system/pearl-compile-only.json --xcodeManagedCodesigning --buildNumber="$GITHUB_RUN_NUMBER" --configuration=debug_sim_arm64 2>&1 | tee pearl-build.log
 
 
       - name: Package encrypted Appetize simulator build
@@ -92,29 +92,29 @@ jobs:
           (cd pearl-appetize/stage/Payload && /usr/bin/ditto -c -k --sequesterRsrc --keepParent Telegram.app ../../PearlFlow.app.zip)
           cat > pearl-appetize/recipient.pem <<'PEARL_CERT'
           -----BEGIN CERTIFICATE-----
-          MIIEIzCCAougAwIBAgIUFo82SF7MCQdaD+tfMX6rZPKiqPIwDQYJKoZIhvcNAQEL
-          BQAwITEfMB0GA1UEAwwWUGVhcmxGbG93QnVpbGRUcmFuc2ZlcjAeFw0yNjEwMTUx
-          MzIzMTdaFw0yNjEwMjIxMzIzMTdaMCExHzAdBgNVBAMMFlBlYXJsRmxvd0J1aWxk
-          VHJhbnNmZXIwggGiMA0GCSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQCeleghR+kc
-          n35ExYnw5fk+KPRvykm9E0XeSwYlIj4vaszN/ORlzo5d60PnzPMwN9k70xohGBB2
-          nr6IksRnwF2xLLv37LfKoqPlE/TEKV1hKjKGCvBSBPh9k+7QFgb9ucg52Y//8hZC
-          WzlW8MLAyhSPClvgh53qeuHDA4KsvdzLYaOS3wS+ooUbh83gBQXg1Gk4sFyAfLaz
-          QSU/Lxe1LmmmxFzxk3Mx0OR2YS92+m+atqkr2HCrSI8IWWucjjkyKTOTQkVc393I
-          R6EU3iEbN0zQ8qTYdJhi0twEbBwcYmUiJYwHTevsrrISnJjO6ApJtuHdi3uRvqoW
-          bUxHJE1+MX7ZDmUmNODbBNeWoo56NuQRhbCiibAYjOGKe6uEj2cZIE/DlnapGkl+
-          sGaKiZp4iuneBju5Lyfu90ThYoS6kdZOa2j1XKXFZW81v+a4vZyo+CZaYzFfpUIW
-          nrCwv9FTgA4iguquE7z3rEOWXLcPdKDlvzu26AsibRzA0rJJFQ+yyTcCAwEAAaNT
-          MFEwHQYDVR0OBBYEFItr9+1z8JP4pjLNYEMBELr8YfaRMB8GA1UdIwQYMBaAFItr
-          9+1z8JP4pjLNYEMBELr8YfaRMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEL
-          BQADggGBAJoC6t8r4n2ZK0hje+kqwE+SOnGIrxBDII1xi1GrBnLECiIYDaS5Z8DW
-          nY7bafY38kd00fyCeyFL7EbhSwVYz0F1Mxq849um/NWDDWlNDtc7MMRHKPtcy57y
-          rqWGugSeEEWJ4/eQaGWHQepbyaTXPrCBgb1zxXIzM0ToHRgqzqT1dT3y9rVTjVXy
-          YYq2bcK49K/7Cn1Q7FqQf6pibvmQwTLM6RzsrO1SQCtUYlmkl6t9FEKntXf3kZpI
-          6AnaqLQKeLxslaEZGIBqsJQIUyY32cFyLm81slF4F8YnTl+QLPKMei73Be4Zvhnl
-          g/Fub30ZQi9bZHPQhB4SJ+VdkhfX6mkirdbrf4fYUE3btTfJCDTvWIVEKB7KQ4f4
-          T9KImBK9UE1QH/dbvWnORc8uVLvPc3h4NY1BulE6kdXErEhQA+B6RJZgHMPDjCJ1
-          byhOxJS9R9OMv0htlcnLG2UjNr2EgW2ZBVOglVFqZjlHz4QZ58zpTRAvIcdypptH
-          W6roBgLInA==
+          MIIEOTCCAqGgAwIBAgIUd2foAurm3mtjAbxgYc4SKpW6jDswDQYJKoZIhvcNAQEL
+          BQAwLDEqMCgGA1UEAwwhUGVhcmwgRmxvdyBwcml2YXRlIGJ1aWxkIHRyYW5zZmVy
+          MB4XDTI2MTAyMzA1MTAzMloXDTI2MTEwNjA1MTAzMlowLDEqMCgGA1UEAwwhUGVh
+          cmwgRmxvdyBwcml2YXRlIGJ1aWxkIHRyYW5zZmVyMIIBojANBgkqhkiG9w0BAQEF
+          AAOCAY8AMIIBigKCAYEAtT7aKTAJ3wEaZ4d//u+s+UQqVhK1dLQ6HaVcGBWiFM4/
+          voD0vaRXW/Nj8KRUWpBw20Tp0j8gE698l3c3uBEVqJCxw4vZJDcukRzK/5w66LEV
+          Px2Fv3CCiEfmJJ/dg1lKhqTKh2ODEVvi92YeXZdQag/7mEhn6VkBEC/i7BDh4yji
+          uF5QMZuMwWJtdnsllkYegMeFNbtp47c9nIATfVlySJb6UvGL8RaS6aOyfn9Re6b3
+          hc6uktUp6YRA8muvFC+oe6Fez3gCo0hrtv+ceQM+xh/KEQkst30XkX1oD9l/PCOD
+          YngvPbmEHEPcdb0tao5MMmVV8m+WtCjXIdM9Nkg+raaMSCktL+JyixgBYbwDVH9U
+          tTBEqcxCXLMv0nfGkwUR4VP5Fv7XBHqgBAOAo/dpZtBf4Sg6cuWOMywsTaavm0JC
+          p6trBuTmfaSBI02IP/QrLGnfKCITWt9Z1iAraGw/zGr3SkszyYQMXIu4O0WHtyaK
+          4UuhY12uMsyhpdRNatW9AgMBAAGjUzBRMB0GA1UdDgQWBBQXEO4V1oFrWXNZ7N3L
+          ZSJyoxacNTAfBgNVHSMEGDAWgBQXEO4V1oFrWXNZ7N3LZSJyoxacNTAPBgNVHRMB
+          Af8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBgQCzCPGVJCipuhU+xTLmpBQaVZkA
+          3Vv0jTBHC5InqZti6Q2rUV14vAYSti+AlCWScIUXRFkovAbxsLHuIUVzYL3rUehg
+          yqY+nwKnTJHK/AFAPZVqRm6j8OVRDQ9giv7QepTXwQVmHFVUVYMISYSx0iQLgTBt
+          YdzhOyVQYH8wNmy6NU2EjjS9WW9+yvZRNl+jb5/JurKCuSsa4EUCyrZjqG+6Wfrd
+          8Zxvj4ErlCeu7VJby3i7im2ZfOpVydhzLaJsfEd9wPGugbFp0tg2gi5t0wNAk08i
+          xxpqG8+OwVe1LVjBN6eTkncmhdqdSOcp5DL60peZyJ/kYMGU/Kk2PQbTBr+6/ad1
+          0UxqZB6Uj2ZMmdklY9s+u9Xo4uJd7TLd4ifZbFP4fjmfkAsly2VYR6I/MqbV4HI3
+          Eea3ly935MPJFLj3iinXdeocs/H1gznDx1s7nhiEvTk35Y6A56NHrBuBjr7UTMOC
+          gA3vTtlJzyqF06cbJ1JUtCC1dSYr+ndOJnwe0Os=
           -----END CERTIFICATE-----
           PEARL_CERT
           openssl cms -encrypt -binary -aes-256-cbc -in pearl-appetize/PearlFlow.app.zip -outform DER -out pearl-appetize/PearlFlow.app.zip.cms pearl-appetize/recipient.pem
