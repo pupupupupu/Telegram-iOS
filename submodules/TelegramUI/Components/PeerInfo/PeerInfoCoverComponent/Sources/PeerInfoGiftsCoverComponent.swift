@@ -415,6 +415,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
             for (_, layer) in self.iconLayers {
                 layer.stopDecorativeAnimations()
                 layer.animationLayer.isVisibleForAnimations = false
+                layer.starsLayer.setEnabled(false)
             }
         }
 
@@ -429,7 +430,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
                 && UIApplication.shared.applicationState == .active
             for (index, entry) in self.iconLayers.sorted(by: { String(describing: $0.key) < String(describing: $1.key) }).enumerated() {
                 let layer = entry.value
-                layer.starsLayer.isHidden = pearl || !enabled
+                layer.starsLayer.setEnabled(!pearl && enabled)
                 // Use the real gift animation renderer, respecting Telegram's energy settings.
                 layer.animationLayer.isVisibleForAnimations = pearl && enabled
                     && (self.component?.context.energyUsageSettings.loopEmoji ?? false)
@@ -609,7 +610,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
                     guard let self else {
                         return
                     }
-                    let pinnedGifts = state.gifts.filter { gift in
+                    let pinnedGifts = state.gifts.lazy.filter { gift in
                         if gift.pinnedToTop {
                             if case let .unique(uniqueGift) = gift.gift {
                                 return uniqueGift.id != giftStatusId
@@ -617,7 +618,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
                         }
                         return false
                     }
-                    self.gifts = pinnedGifts
+                    self.gifts = Array(pinnedGifts.prefix(12))
                     if !self.isUpdating {
                         self.state?.updated(transition: .spring(duration: 0.4))
                     }
@@ -926,11 +927,24 @@ private final class StarsEffectLayer: SimpleLayer {
     }
 
     private var color: UIColor?
+    private var emitterSize: CGSize?
+    private var emitterEnabled: Bool?
+
+    func setEnabled(_ enabled: Bool) {
+        guard self.emitterEnabled != enabled else {
+            return
+        }
+        self.emitterEnabled = enabled
+        self.isHidden = !enabled
+        self.emitterLayer.birthRate = enabled ? 1.0 : 0.0
+    }
 
     func update(color: UIColor, size: CGSize) {
-        if self.color != color {
-            self.setup(color: color, size: size)
+        guard self.color != color || self.emitterSize != size else {
+            return
         }
+        self.setup(color: color, size: size)
+        self.emitterSize = size
         self.emitterLayer.seed = UInt32.random(in: .min ..< .max)
         self.emitterLayer.emitterShape = .circle
         self.emitterLayer.emitterSize = size
@@ -947,6 +961,9 @@ private class GiftIconLayer: SimpleLayer {
 
     var glowing: Bool {
         didSet {
+            guard self.glowing != oldValue else {
+                return
+            }
             self.shadowLayer.opacity = self.glowing ? 1.0 : 0.0
             let color: UIColor
             if self.glowing {
