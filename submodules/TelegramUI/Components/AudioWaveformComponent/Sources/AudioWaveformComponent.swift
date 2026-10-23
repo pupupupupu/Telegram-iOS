@@ -215,10 +215,15 @@ public final class AudioWaveformComponent: Component {
         private var isAwaitingScrubbingApplication: Bool = false
         private var statusDisposable: Disposable?
         private var playbackStatusAnimator: ConstantDisplayLinkAnimator?
+        private var isInHierarchy = false
+        private var isApplicationActive = UIApplication.shared.applicationState == .active
         
         private var sparksView: SparksView?
         private var progress: CGFloat = 0.0
         private var lastHeight: CGFloat = 0.0
+        // Geometry depends on samples and width, not playback position.
+        private var cachedSampleHeights: [CGFloat] = []
+        private var cachedSampleCount: Int = -1
         
         private var revealProgress: CGFloat = 1.0
         private var animator: DisplayLinkAnimator?
@@ -239,11 +244,15 @@ public final class AudioWaveformComponent: Component {
             self.isOpaque = false
             
             (self.layer as! LayerImpl).didEnterHierarchy = { [weak self] in
+                self?.isInHierarchy = true
                 self?.updatePlaybackAnimation()
             }
             (self.layer as! LayerImpl).didExitHierarchy = { [weak self] in
+                self?.isInHierarchy = false
                 self?.updatePlaybackAnimation()
             }
+            NotificationCenter.default.addObserver(self, selector: #selector(self.applicationDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(self.applicationWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
             
             let panRecognizer = UIPanGestureRecognizer(target: self, action: #selector(self.panGesture(_:)))
             panRecognizer.delegate = self
@@ -256,7 +265,21 @@ public final class AudioWaveformComponent: Component {
         }
         
         deinit {
+            NotificationCenter.default.removeObserver(self)
             self.statusDisposable?.dispose()
+            self.playbackStatusAnimator?.invalidate()
+            self.animator?.invalidate()
+        }
+
+        @objc private func applicationDidBecomeActive() {
+            self.isApplicationActive = true
+            self.updatePlaybackAnimation()
+            self.setNeedsDisplay()
+        }
+
+        @objc private func applicationWillResignActive() {
+            self.isApplicationActive = false
+            self.updatePlaybackAnimation()
         }
         
         public var cloneLayer: CloneLayer? {
@@ -388,6 +411,10 @@ public final class AudioWaveformComponent: Component {
                 )
             }
             
+            if self.component?.samples != component.samples {
+                self.cachedSampleCount = -1
+                self.cachedSampleHeights.removeAll(keepingCapacity: true)
+            }
             self.component = component
             self.validSize = size
             
@@ -440,6 +467,7 @@ public final class AudioWaveformComponent: Component {
                 }
             }
             
+            needsAnimation = needsAnimation && self.isInHierarchy && self.isApplicationActive
             if needsAnimation != (self.playbackStatusAnimator != nil) {
                 if needsAnimation {
                     self.playbackStatusAnimator = ConstantDisplayLinkAnimator(update: { [weak self] in
@@ -533,56 +561,15 @@ public final class AudioWaveformComponent: Component {
             
             let size = bounds.size
             
-            component.samples.withUnsafeBytes { rawSamples -> Void in
-                let samples = rawSamples.baseAddress!.assumingMemoryBound(to: UInt16.self)
-                
-                let peakHeight: CGFloat = 18.0
-                let maxReadSamples = rawSamples.count / 2
-                
-                var maxSample: UInt16 = 0
-                for i in 0 ..< maxReadSamples {
-                    let sample = samples[i]
-                    if maxSample < sample {
-                        maxSample = sample
-                    }
-                }
-                
-                let numSamples = Int(floor(size.width / (sampleWidth + distance)))
-                
-                let adjustedSamplesMemory = malloc(numSamples * 2)!
-                let adjustedSamples = adjustedSamplesMemory.assumingMemoryBound(to: UInt16.self)
-                defer {
-                    free(adjustedSamplesMemory)
-                }
-                memset(adjustedSamplesMemory, 0, numSamples * 2)
-                
-                var bins: [UInt16: Int] = [:]
-                for i in 0 ..< maxReadSamples {
-                    let index = i * numSamples / maxReadSamples
-                    let sample = samples[i]
-                    if adjustedSamples[index] < sample {
-                        adjustedSamples[index] = sample
-                    }
-                  
-                    if let count = bins[sample] {
-                        bins[sample] = count + 1
-                    } else {
-                        bins[sample] = 1
-                    }
-                }
-                
-                var sortedSamples: [(UInt16, Int)] = []
-                var totalCount: Int = 0
-                for (sample, count) in bins {
-                    if sample > 0 {
-                        sortedSamples.append((sample, count))
-                        totalCount += count
-                    }
-                }
-                sortedSamples.sort { $0.1 > $1.1 }
-                
-                let invScale = 1.0 / max(1.0, CGFloat(maxSample))
-                
+            let numSamples = max(0, Int(floor(size.width / (sampleWidth + distance))))
+            guard numSamples > 0 else {
+                return
+            }
+            if self.cachedSampleCount != numSamples {
+                self.cachedSampleHeights = pearlWaveformSampleHeights(samples: component.samples, count: numSamples)
+                self.cachedSampleCount = numSamples
+            }
+            do {
                 let commonRevealFraction = listViewAnimationCurveSystem(self.revealProgress)
                 let usePearlFlow = component.pearlFlow && !component.isViewOnceMessage && component.shimmerColor == nil
                 let pearlPhase = UIAccessibility.isReduceMotionEnabled ? CGFloat(0.0) : playbackProgress
@@ -591,12 +578,7 @@ public final class AudioWaveformComponent: Component {
                 var lastHeight: CGFloat = 0.0
                 for i in 0 ..< numSamples {
                     let offset = CGFloat(i) * (sampleWidth + distance)
-                    let peakSample = adjustedSamples[i]
-                    
-                    var sampleHeight = CGFloat(peakSample) * peakHeight * invScale
-                    if abs(sampleHeight) > peakHeight {
-                        sampleHeight = peakHeight
-                    }
+                    var sampleHeight = self.cachedSampleHeights[i]
                     
                     let startFraction = CGFloat(i) / CGFloat(numSamples)
                     let nextStartFraction = CGFloat(i + 1) / CGFloat(numSamples)
@@ -777,3 +759,25 @@ private class SparksView: UIView {
         }
     }
 }
+
+// BEGIN PEARL WAVEFORM GEOMETRY
+// Pure geometry: shared with the host-side regression checks. No player/UI state.
+private func pearlWaveformSampleHeights(samples: Data, count: Int) -> [CGFloat] {
+    guard count > 0 else {
+        return []
+    }
+    let readCount = samples.count / MemoryLayout<UInt16>.size
+    var peaks = [UInt16](repeating: 0, count: count)
+    var maxSample: UInt16 = 0
+    samples.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+        for i in 0 ..< readCount {
+            let sample = bytes.loadUnaligned(fromByteOffset: i * MemoryLayout<UInt16>.size, as: UInt16.self)
+            maxSample = max(maxSample, sample)
+            let index = i * count / readCount
+            peaks[index] = max(peaks[index], sample)
+        }
+    }
+    let scale = 18.0 / max(1.0, CGFloat(maxSample))
+    return peaks.map { min(18.0, CGFloat($0) * scale) }
+}
+// END PEARL WAVEFORM GEOMETRY
