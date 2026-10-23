@@ -163,6 +163,8 @@ final class PeerInfoHeaderNode: ASDisplayNode {
     
     var musicBackground: UIView?
     var music: ComponentView<Empty>?
+    private var pearlMusicGlass: UIVisualEffectView?
+    private var pearlMusicGradient: CAGradientLayer?
     
     var performButtonAction: ((PeerInfoHeaderButtonKey, PeerInfoHeaderButtonNode?, ContextGesture?) -> Void)?
     var requestAvatarExpansion: ((Bool, [AvatarGalleryEntry], AvatarGalleryEntry?, (ASDisplayNode, CGRect, () -> (UIView?, UIView?))?) -> Void)?
@@ -583,7 +585,8 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                 currentSavedMusic = cachedUserData.savedMusic
             }
         }
-        let musicHeight: CGFloat = hasBackground || self.isAvatarExpanded ? 24.0 : 16.0
+        let isPearlTheme = ["Pearl Mist", "Arctic Pearl", "Midnight Pearl"].contains(presentationData.theme.name.string)
+        let musicHeight: CGFloat = isPearlTheme ? 60.0 : (hasBackground || self.isAvatarExpanded ? 24.0 : 16.0)
         let bottomInset: CGFloat = currentSavedMusic != nil ? musicHeight : 0.0
         
         let isLandscape = containerInset > 16.0
@@ -2650,7 +2653,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                     }
                     return musicBackground
                 }()
-                musicTransition.updateFrame(view: musicBackground, frame: CGRect(origin: CGPoint(x: 0.0, y: backgroundHeight - 24.0 - buttonRightOrigin.y), size: CGSize(width: backgroundFrame.width, height: 24.0)))
+                musicTransition.updateFrame(view: musicBackground, frame: CGRect(origin: CGPoint(x: 0.0, y: backgroundHeight - musicHeight - buttonRightOrigin.y), size: CGSize(width: backgroundFrame.width, height: musicHeight)))
                 
                 if let _ = self.navigationTransition {
                     transition.updateAlpha(layer: musicBackground.layer, alpha: 1.0 - transitionFraction)
@@ -2676,8 +2679,9 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             
             let musicString = NSMutableAttributedString()
             let isOverlay = self.isAvatarExpanded || hasBackground
-            musicString.append(NSAttributedString(string: track ?? "", font: Font.semibold(12.0), textColor: isOverlay ? .white : presentationData.theme.list.itemAccentColor))
-            musicString.append(NSAttributedString(string: " - \(artist)", font: Font.regular(12.0), textColor: isOverlay ? UIColor.white.withAlphaComponent(0.7) : presentationData.theme.list.itemSecondaryTextColor))
+            let musicContentWidth = max(0.0, backgroundFrame.width - (isPearlTheme ? 32.0 : 0.0))
+            musicString.append(NSAttributedString(string: track ?? "", font: Font.semibold(isPearlTheme ? 14.0 : 12.0), textColor: isOverlay ? .white : presentationData.theme.list.itemAccentColor))
+            musicString.append(NSAttributedString(string: " - \(artist)", font: Font.regular(isPearlTheme ? 14.0 : 12.0), textColor: isOverlay ? UIColor.white.withAlphaComponent(0.7) : presentationData.theme.list.itemSecondaryTextColor))
             
             let musicSize = music.update(
                 transition: .immediate,
@@ -2691,7 +2695,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                                 ),
                                 AnyComponentWithIdentity(
                                     id: "label",
-                                    component: AnyComponent(MarqueeComponent(attributedText: musicString, maxWidth: backgroundFrame.width - 96.0))
+                                    component: AnyComponent(MarqueeComponent(attributedText: musicString, maxWidth: max(0.0, musicContentWidth - 96.0)))
                                 ),
                                 AnyComponentWithIdentity(
                                     id: "arrow",
@@ -2699,17 +2703,57 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                                 )
                             ], spacing: 4.0)
                         ),
-                        minSize: CGSize(width: backgroundFrame.width, height: musicHeight),
+                        minSize: CGSize(width: musicContentWidth, height: isPearlTheme ? 48.0 : musicHeight),
                         action: { [weak self] in
                             self?.displaySavedMusic?()
                         }
                     )
                 ),
                 environment: {},
-                containerSize: CGSize(width: backgroundFrame.width, height: musicHeight)
+                containerSize: CGSize(width: musicContentWidth, height: isPearlTheme ? 48.0 : musicHeight)
             )
-            let musicFrame = CGRect(origin: CGPoint(x: 0.0, y: (apparentBackgroundHeight - backgroundHeight) + backgroundHeight - musicHeight - (hasBackground || self.isAvatarExpanded ? 0.0 : 4.0)), size: musicSize)
+            let musicFrame = CGRect(origin: CGPoint(x: isPearlTheme ? 16.0 : 0.0, y: (apparentBackgroundHeight - backgroundHeight) + backgroundHeight - musicHeight - (hasBackground || self.isAvatarExpanded ? 0.0 : 4.0)), size: musicSize)
             if let musicView = music.view {
+                if isPearlTheme {
+                    let dark = presentationData.theme.overallDarkAppearance || isOverlay
+                    let glass = self.pearlMusicGlass ?? {
+                        let view = UIVisualEffectView()
+                        view.isUserInteractionEnabled = false
+                        view.clipsToBounds = true
+                        view.layer.cornerRadius = 22.0
+                        musicView.insertSubview(view, at: 0)
+                        self.pearlMusicGlass = view
+                        return view
+                    }()
+                    glass.effect = UIAccessibility.isReduceTransparencyEnabled ? nil : UIBlurEffect(style: dark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight)
+                    glass.backgroundColor = UIAccessibility.isReduceTransparencyEnabled
+                        ? (dark ? UIColor(rgb: 0x252F3C) : UIColor(rgb: 0xEDF2F6))
+                        : .clear
+                    glass.frame = CGRect(origin: .zero, size: musicSize)
+                    glass.layer.borderWidth = 0.5
+                    glass.layer.borderColor = UIColor.white.withAlphaComponent(dark ? 0.18 : 0.6).cgColor
+                    let gradient = self.pearlMusicGradient ?? {
+                        let layer = CAGradientLayer()
+                        glass.contentView.layer.insertSublayer(layer, at: 0)
+                        self.pearlMusicGradient = layer
+                        return layer
+                    }()
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    gradient.frame = glass.bounds
+                    gradient.colors = [
+                        UIColor.white.withAlphaComponent(dark ? 0.12 : 0.4).cgColor,
+                        UIColor(rgb: 0x94B4CA).withAlphaComponent(0.12).cgColor,
+                        UIColor.white.withAlphaComponent(dark ? 0.03 : 0.22).cgColor
+                    ]
+                    gradient.startPoint = CGPoint(x: 0.0, y: 0.0)
+                    gradient.endPoint = CGPoint(x: 1.0, y: 1.0)
+                    CATransaction.commit()
+                } else {
+                    self.pearlMusicGlass?.removeFromSuperview()
+                    self.pearlMusicGlass = nil
+                    self.pearlMusicGradient = nil
+                }
                 if musicView.superview == nil {
                     self.regularContentNode.view.addSubview(musicView)
                     if transition.isAnimated {
@@ -2739,6 +2783,9 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                     musicBackground.removeFromSuperview()
                 }
             }
+            self.pearlMusicGlass?.removeFromSuperview()
+            self.pearlMusicGlass = nil
+            self.pearlMusicGradient = nil
             if let music = self.music {
                 self.music = nil
                 if transition.isAnimated {
