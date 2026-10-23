@@ -414,6 +414,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
         @objc private func pauseDecorations() {
             for (_, layer) in self.iconLayers {
                 layer.stopDecorativeAnimations()
+                layer.animationLayer.isVisibleForAnimations = false
             }
         }
 
@@ -428,7 +429,10 @@ public final class PeerInfoGiftsCoverComponent: Component {
                 && UIApplication.shared.applicationState == .active
             for (index, entry) in self.iconLayers.sorted(by: { String(describing: $0.key) < String(describing: $1.key) }).enumerated() {
                 let layer = entry.value
-                layer.starsLayer.isHidden = pearl
+                layer.starsLayer.isHidden = pearl || !enabled
+                // Use the real gift animation renderer, respecting Telegram's energy settings.
+                layer.animationLayer.isVisibleForAnimations = pearl && enabled
+                    && (self.component?.context.energyUsageSettings.loopEmoji ?? false)
                 if enabled {
                     layer.startAnimations(index: index, pearl: pearl)
                 } else {
