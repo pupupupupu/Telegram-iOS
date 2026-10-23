@@ -165,6 +165,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
     var music: ComponentView<Empty>?
     private var pearlMusicGlass: UIVisualEffectView?
     private var pearlMusicGradient: CAGradientLayer?
+    private var pearlMusicMaterial: (dark: Bool, opaque: Bool)?
     
     var performButtonAction: ((PeerInfoHeaderButtonKey, PeerInfoHeaderButtonNode?, ContextGesture?) -> Void)?
     var requestAvatarExpansion: ((Bool, [AvatarGalleryEntry], AvatarGalleryEntry?, (ASDisplayNode, CGRect, () -> (UIView?, UIView?))?) -> Void)?
@@ -2725,10 +2726,14 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                         self.pearlMusicGlass = view
                         return view
                     }()
-                    glass.effect = UIAccessibility.isReduceTransparencyEnabled ? nil : UIBlurEffect(style: dark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight)
-                    glass.backgroundColor = UIAccessibility.isReduceTransparencyEnabled
-                        ? (dark ? UIColor(rgb: 0x252F3C) : UIColor(rgb: 0xEDF2F6))
-                        : .clear
+                    let opaque = UIAccessibility.isReduceTransparencyEnabled
+                    if self.pearlMusicMaterial?.dark != dark || self.pearlMusicMaterial?.opaque != opaque {
+                        self.pearlMusicMaterial = (dark: dark, opaque: opaque)
+                        glass.effect = opaque ? nil : UIBlurEffect(style: dark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight)
+                        glass.backgroundColor = opaque
+                            ? (dark ? UIColor(rgb: 0x252F3C) : UIColor(rgb: 0xEDF2F6))
+                            : .clear
+                    }
                     glass.frame = CGRect(origin: .zero, size: musicSize)
                     glass.layer.borderWidth = 0.5
                     glass.layer.borderColor = UIColor.white.withAlphaComponent(dark ? 0.18 : 0.6).cgColor
@@ -2753,6 +2758,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                     self.pearlMusicGlass?.removeFromSuperview()
                     self.pearlMusicGlass = nil
                     self.pearlMusicGradient = nil
+                    self.pearlMusicMaterial = nil
                 }
                 if musicView.superview == nil {
                     self.regularContentNode.view.addSubview(musicView)
@@ -2786,6 +2792,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             self.pearlMusicGlass?.removeFromSuperview()
             self.pearlMusicGlass = nil
             self.pearlMusicGradient = nil
+            self.pearlMusicMaterial = nil
             if let music = self.music {
                 self.music = nil
                 if transition.isAnimated {
