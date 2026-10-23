@@ -149,7 +149,12 @@ public final class PeerInfoGiftsCoverComponent: Component {
                     return
                 }
                 self.isCurrentlyInHierarchy = false
+                self.updateAnimations()
             }
+
+            NotificationCenter.default.addObserver(self, selector: #selector(self.motionPreferenceChanged), name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(self.motionPreferenceChanged), name: UIApplication.didBecomeActiveNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(self.pauseDecorations), name: UIApplication.willResignActiveNotification, object: nil)
 
             let tap = UITapGestureRecognizer(target: self, action: #selector(self.tapped(_:)))
             tap.cancelsTouchesInView = false
@@ -200,6 +205,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
         }
 
         deinit {
+            NotificationCenter.default.removeObserver(self)
             self.giftsDisposable?.dispose()
         }
 
@@ -401,13 +407,33 @@ public final class PeerInfoGiftsCoverComponent: Component {
             return false
         }
 
+        @objc private func motionPreferenceChanged() {
+            self.updateAnimations()
+        }
+
+        @objc private func pauseDecorations() {
+            for (_, layer) in self.iconLayers {
+                layer.stopDecorativeAnimations()
+            }
+        }
+
         func updateAnimations() {
-            var index = 0
-            for (_, iconLayer) in self.iconLayers {
-                if self.isCurrentlyInHierarchy {
-                    iconLayer.startAnimations(index: index)
+            let pearl = self.component.map { component in
+                component.context.sharedContext.currentPresentationData.with {
+                    ["Pearl Mist", "Arctic Pearl", "Midnight Pearl"].contains($0.theme.name.string)
                 }
-                index += 1
+            } ?? false
+            let enabled = self.isCurrentlyInHierarchy && !self.isEditingLayout
+                && !UIAccessibility.isReduceMotionEnabled
+                && UIApplication.shared.applicationState == .active
+            for (index, entry) in self.iconLayers.sorted(by: { String(describing: $0.key) < String(describing: $1.key) }).enumerated() {
+                let layer = entry.value
+                layer.starsLayer.isHidden = pearl
+                if enabled {
+                    layer.startAnimations(index: index, pearl: pearl)
+                } else {
+                    layer.stopDecorativeAnimations()
+                }
             }
         }
 
@@ -629,7 +655,6 @@ public final class PeerInfoGiftsCoverComponent: Component {
                         iconLayer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2)
                         iconLayer.animateScale(from: 0.01, to: 1.0, duration: 0.2)
                     }
-                    iconLayer.startAnimations(index: index)
                 }
                 iconLayer.glowing = component.hasBackground
 
@@ -725,6 +750,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
             for id in removeIds {
                 self.iconLayers.removeValue(forKey: id)
             }
+            self.updateAnimations()
             self.updateEditingHierarchy()
             self.bringSubviewToFront(self.editingToolbar)
             self.bringSubviewToFront(self.editingHint)
@@ -1075,13 +1101,25 @@ private class GiftIconLayer: SimpleLayer {
         self.animationLayer.transform = CATransform3DMakeRotation(angle, 0.0, 0.0, 1.0)
     }
 
-    func startAnimations(index: Int) {
-        let beginTime = Double(index) * 1.5
+    private var pearlMotion: Bool?
+
+    func stopDecorativeAnimations() {
+        self.removeAnimation(forKey: "hover")
+        self.animationLayer.removeAnimation(forKey: "wiggle")
+        self.shadowLayer.removeAnimation(forKey: "glow")
+    }
+
+    func startAnimations(index: Int, pearl: Bool) {
+        if self.pearlMotion != pearl {
+            self.stopDecorativeAnimations()
+            self.pearlMotion = pearl
+        }
+        let beginTime = self.convertTime(CACurrentMediaTime(), from: nil) + Double(index) * 0.12
 
         if self.animation(forKey: "hover") == nil {
-            let upDistance = CGFloat.random(in: 1.0 ..< 2.0)
-            let downDistance = CGFloat.random(in: 1.0 ..< 2.0)
-            let hoverDuration = TimeInterval.random(in: 3.5 ..< 4.5)
+            let upDistance = pearl ? 1.0 : CGFloat.random(in: 1.0 ..< 2.0)
+            let downDistance = pearl ? 1.0 : CGFloat.random(in: 1.0 ..< 2.0)
+            let hoverDuration = pearl ? 5.5 : TimeInterval.random(in: 3.5 ..< 4.5)
             let hoverAnimation = CABasicAnimation(keyPath: "transform.translation.y")
             hoverAnimation.duration = hoverDuration
             hoverAnimation.fromValue = -upDistance
@@ -1095,9 +1133,9 @@ private class GiftIconLayer: SimpleLayer {
         }
 
         if self.animationLayer.animation(forKey: "wiggle") == nil {
-            let fromRotationAngle = CGFloat.random(in: 0.025 ..< 0.05)
-            let toRotationAngle = CGFloat.random(in: 0.025 ..< 0.05)
-            let wiggleDuration = TimeInterval.random(in: 2.0 ..< 3.0)
+            let fromRotationAngle = pearl ? 0.018 : CGFloat.random(in: 0.025 ..< 0.05)
+            let toRotationAngle = pearl ? 0.018 : CGFloat.random(in: 0.025 ..< 0.05)
+            let wiggleDuration = pearl ? 6.0 : TimeInterval.random(in: 2.0 ..< 3.0)
             let wiggleAnimation = CABasicAnimation(keyPath: "transform.rotation.z")
             wiggleAnimation.duration = wiggleDuration
             wiggleAnimation.fromValue = -fromRotationAngle
@@ -1110,7 +1148,7 @@ private class GiftIconLayer: SimpleLayer {
             self.animationLayer.add(wiggleAnimation, forKey: "wiggle")
         }
 
-        if self.shadowLayer.animation(forKey: "glow") == nil {
+        if !pearl && self.shadowLayer.animation(forKey: "glow") == nil {
             let glowDuration = TimeInterval.random(in: 2.0 ..< 3.0)
             let glowAnimation = CABasicAnimation(keyPath: "transform.scale")
             glowAnimation.duration = glowDuration
